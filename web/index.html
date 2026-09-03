@@ -287,7 +287,6 @@ body{
   display:inline-block;
   font-size:clamp(9.5px,.7vw,11.5px);
   padding:1px 6px;border-radius:2px;
-  background:rgba(74,159,216,.13);color:var(--blue);
   margin-right:6px;
 }
 .task.live{
@@ -296,6 +295,17 @@ body{
   border-left:2px solid var(--red);
 }
 .task.live .task-time{color:#FF8478}
+.task.past{opacity:.5}
+.task.past:hover{opacity:.85}
+.task-toggle{
+  display:flex;align-items:center;gap:6px;
+  padding:9px 0 3px;
+  font-size:clamp(10.5px,.8vw,13px);
+  color:var(--ink-2);
+  cursor:pointer;user-select:none;
+}
+.task-toggle:hover{color:var(--ink)}
+.task-toggle .arrow{font-size:.8em;color:var(--ink-3)}
 .live-tag{
   font-size:clamp(9px,.68vw,11px);
   font-weight:700;letter-spacing:.14em;
@@ -712,29 +722,81 @@ body{
     return null;
   }
 
+  // 各單位固定一個顏色（依名稱雜湊，不受資料到達順序影響），方便在依時間
+  // 排序、不同單位項目交錯出現時，一眼分辨屬於哪個單位。
+  var TASK_PALETTE=[
+    {c:"var(--blue)",  bg:"rgba(74,159,216,.14)"},
+    {c:"var(--violet)",bg:"rgba(155,140,216,.14)"},
+    {c:"var(--green)", bg:"rgba(61,190,107,.14)"},
+    {c:"var(--amber)", bg:"rgba(242,169,59,.14)"},
+    {c:"#E4675A",       bg:"rgba(228,103,90,.14)"},
+    {c:"#4DBFAE",       bg:"rgba(77,191,174,.14)"}
+  ];
+  function unitColor(name){
+    var h=0;
+    for(var i=0;i<name.length;i++){ h=(h*31+name.charCodeAt(i))>>>0; }
+    return TASK_PALETTE[h%TASK_PALETTE.length];
+  }
+
+  function taskRowHtml(t,isLive,isPast){
+    var col=unitColor(t.unit||"");
+    var cls="task"+(isLive?" live":"")+(isPast?" past":"");
+    var html='<div class="'+cls+'">';
+    html+='<span class="task-time">'+esc(t.time)+"</span>";
+    html+='<span class="task-main">';
+    html+='<span class="task-name"><span class="task-unit" style="background:'+col.bg+';color:'+col.c+'">'+
+          esc(t.unit)+"</span>"+esc(t.name)+
+          (isLive?'<span class="live-tag">進行中</span>':"")+"</span>";
+    var sub=[];
+    if(t.who) sub.push('人員 <span class="who">'+esc(t.who)+"</span>");
+    if(t.car) sub.push("車輛 "+esc(t.car));
+    if(t.loc) sub.push("地點 "+esc(t.loc));
+    if(sub.length) html+='<span class="task-sub">'+sub.join("　")+"</span>";
+    html+="</span></div>";
+    return html;
+  }
+
+  var tasksPastOpen=false;
+
   function renderTasks(now){
     var host=document.getElementById("tasks");
     if(!host) return;
-    var h=now.getHours(), live=0, html="";
+    var h=now.getHours(), live=0;
 
-    TASKS.forEach(function(t){
+    // 依開始時間排序，讓不同單位、不同時長的項目照時間軸自然排列，
+    // 不再是「先列大隊、再列分隊」這種跟時間無關的分組順序。
+    var withMeta=TASKS.map(function(t){
       var r=parseRange(t.time);
-      var on=r&&h>=r[0]&&h<r[1];
-      if(on) live++;
-      html+='<div class="task'+(on?" live":"")+'">';
-      html+='<span class="task-time">'+esc(t.time)+"</span>";
-      html+='<span class="task-main">';
-      html+='<span class="task-name"><span class="task-unit">'+esc(t.unit)+"</span>"+esc(t.name)+
-            (on?'<span class="live-tag">進行中</span>':"")+"</span>";
-      var sub=[];
-      if(t.who) sub.push('人員 <span class="who">'+esc(t.who)+"</span>");
-      if(t.car) sub.push("車輛 "+esc(t.car));
-      if(t.loc) sub.push("地點 "+esc(t.loc));
-      if(sub.length) html+='<span class="task-sub">'+sub.join("　")+"</span>";
-      html+="</span></div>";
+      return {t:t, r:r, start:(r?r[0]:0)};
+    });
+    withMeta.sort(function(a,b){ return a.start-b.start; });
+
+    var activeHtml="", pastHtml=[];
+    withMeta.forEach(function(m){
+      var t=m.t, r=m.r;
+      var isPast=!!(r&&h>=r[1]);
+      var isLive=!!(r&&h>=r[0]&&h<r[1]);
+      if(isLive) live++;
+      var row=taskRowHtml(t,isLive,isPast);
+      if(isPast) pastHtml.push(row); else activeHtml+=row;
     });
 
-    host.innerHTML=html;
+    var html=activeHtml;
+    if(pastHtml.length){
+      html+='<div class="task-toggle" id="taskToggle">'+
+            '<span class="arrow">'+(tasksPastOpen?"▾":"▸")+"</span>"+
+            (tasksPastOpen?"收合":"顯示")+"已結束 "+pastHtml.length+" 項</div>";
+      if(tasksPastOpen) html+=pastHtml.join("");
+    }
+
+    host.innerHTML=html||'<div class="cal-empty">今日尚無安排</div>';
+
+    var toggle=document.getElementById("taskToggle");
+    if(toggle) toggle.onclick=function(){
+      tasksPastOpen=!tasksPastOpen;
+      renderTasks(new Date());
+    };
+
     var meta=document.getElementById("taskmeta");
     if(meta) meta.textContent=live>0?("進行中 "+live+" 項"):"目前無進行中項目";
   }
@@ -839,6 +901,27 @@ body{
     }catch(e){ return "—"; }
   }
 
+  /* ---- 資料新鮮度 ----
+     採集器改成數小時才推送一次後，若因授權過期等原因悄悄停止更新，
+     畫面不該毫無警示地停在舊資料上。每分鐘檢查一次：距離最後一次
+     收到資料超過門檻，就把告示條轉成警示色，提醒去隊部電腦重新
+     執行一次採集器。門檻抓「採集週期 + 1 小時緩衝」。 */
+  var remoteReceivedAt=null, remoteDutyDate=null;
+  var STALE_MS=5*60*60*1000;
+
+  function checkFreshness(){
+    if(!remoteReceivedAt) return;   // 還沒收過即時資料，沿用開機時的預設告示
+    var ageMs=Date.now()-remoteReceivedAt.getTime();
+    if(ageMs>STALE_MS){
+      var hrs=Math.floor(ageMs/3600000);
+      setNotice("<b>資料已 "+hrs+" 小時未更新</b>　　請至隊部電腦重新執行一次「更新勤務看板」書籤。",false);
+    }else{
+      setNotice("<b>即時資料</b>　　勤務日期 "+esc(remoteDutyDate||"")+
+                "　最後採集 "+fmtTime(remoteReceivedAt.toISOString())+
+                "　　行事曆為 Google 行事曆資料。",true);
+    }
+  }
+
   function loadRemote(){
     if(!window.fetch) return;
     fetch("/api/duty",{cache:"no-store"})
@@ -864,9 +947,9 @@ body{
         }
         if(Array.isArray(d.tasks)) TASKS=d.tasks;
 
-        setNotice("<b>即時資料</b>　　勤務日期 "+esc(d.date)+
-                  "　最後採集 "+fmtTime(j.receivedAt)+
-                  "　　行事曆為 Google 行事曆資料。",true);
+        remoteReceivedAt=new Date(j.receivedAt);
+        remoteDutyDate=d.date;
+        checkFreshness();
 
         renderStrip();
         renderLeave();
@@ -880,8 +963,9 @@ body{
   renderLeave();
   tick();
   setInterval(tick,1000);
+  setInterval(checkFreshness,60*1000);   // 每分鐘檢查一次資料是否太久沒更新
 
   loadRemote();
-  setInterval(loadRemote,5*60*1000);   // 每 5 分鐘向伺服器要一次
+  setInterval(loadRemote,5*60*1000);   // 看板每 5 分鐘向伺服器要一次資料（與採集器推送頻率無關）
 })();
 </script>

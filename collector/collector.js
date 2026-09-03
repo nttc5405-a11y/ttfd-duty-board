@@ -7,7 +7,7 @@
    2. 向系統要今天成功大隊 6 個單位的勤務表
    3. 把「以人為單位」的排班轉成「以時段為單位」的看板格式
    4. 送到你自己的 Render 伺服器，供電視牆與手機讀取
-   5. 之後每 5 分鐘自動重跑一次
+   5. 之後每 4 小時自動重跑一次（勤務表修正不頻繁，不需要更密集）
 
    第一次執行會問你 Render 網址與通行碼，記在這台電腦的瀏覽器裡，之後不再問。
    ============================================================ */
@@ -16,6 +16,10 @@
 
   var CFG_URL = "__board_endpoint";
   var CFG_TOK = "__board_token";
+
+  // 自動更新間隔。勤務表修正不頻繁，不需要更密集；拉長間隔也降低
+  // 系統登入授權過期、每次都要重新攔截的機率。
+  var PUSH_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
   // 成功大隊及所屬 5 個分隊的單位 ID（取自系統前端自身的查詢條件）
   var DEPTS = [
@@ -79,30 +83,102 @@
     log.scrollTop = log.scrollHeight;
   }
 
-  /* ---------- 取得授權標頭 ---------- */
-  // 不讀帳號密碼。系統登入後會在瀏覽器裡留下一組授權權杖，這裡只是沿用它。
+  /* ---------- 取得授權標頭 ----------
+     不讀帳號密碼。這個系統把授權權杖只放在網頁的記憶體裡（不落地存
+     localStorage / sessionStorage / Cookie，已實測確認），所以改用
+     「在旁邊看」的方式：攔截頁面自己發出的請求，取得它使用的
+     Authorization 標頭值，沿用來發我們自己的查詢。
+     權杖只存在這次執行的記憶體裡，重新整理頁面就消失，不落地存檔。 */
 
-  function findAuth() {
-    var stores = [localStorage, sessionStorage];
-    for (var s = 0; s < stores.length; s++) {
-      var st = stores[s];
-      for (var i = 0; i < st.length; i++) {
-        var k = st.key(i), v = st.getItem(k) || "";
-        if (/^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\./.test(v)) return v;
-        if (/token|auth|jwt/i.test(k) && v.length > 20 && v.indexOf("{") !== 0) return v;
-        if (v.charAt(0) === "{") {
-          try {
-            var o = JSON.parse(v);
-            for (var kk in o) {
-              if (/token|jwt|auth/i.test(kk) && typeof o[kk] === "string" && o[kk].length > 20) {
-                return o[kk];
-              }
-            }
-          } catch (e) {}
+  function installAuthWatcher() {
+    if (window.__collectorPatched) return;
+    window.__collectorPatched = true;
+    window.__collectorAuth = window.__collectorAuth || null;
+    window.__collectorWaiters = [];
+
+    function got(v) {
+      if (!v || window.__collectorAuth === v) return;
+      window.__collectorAuth = v;
+      var ws = window.__collectorWaiters;
+      window.__collectorWaiters = [];
+      ws.forEach(function (fn) { fn(v); });
+    }
+
+    var oSetHeader = XMLHttpRequest.prototype.setRequestHeader;
+    XMLHttpRequest.prototype.setRequestHeader = function (k, v) {
+      if (/^authorization$/i.test(k)) got(v);
+      return oSetHeader.apply(this, arguments);
+    };
+
+    var oFetch = window.fetch;
+    window.fetch = function (input, init) {
+      try {
+        var h = init && init.headers, v = null;
+        if (h) {
+          if (typeof Headers !== "undefined" && h instanceof Headers) {
+            v = h.get("authorization") || h.get("Authorization");
+          } else if (Array.isArray(h)) {
+            h.forEach(function (p) { if (/^authorization$/i.test(p[0])) v = p[1]; });
+          } else {
+            for (var k in h) { if (/^authorization$/i.test(k)) v = h[k]; }
+          }
         }
+        if (v) got(v);
+      } catch (e) {}
+      return oFetch.apply(this, arguments);
+    };
+  }
+
+  function waitForAuth(timeoutMs) {
+    return new Promise(function (resolve, reject) {
+      if (window.__collectorAuth) return resolve(window.__collectorAuth);
+      var done = false;
+      var to = setTimeout(function () {
+        if (done) return;
+        done = true;
+        window.__collectorWaiters = (window.__collectorWaiters || []).filter(function (f) { return f !== onGot; });
+        reject(new Error("等待逾時"));
+      }, timeoutMs);
+      function onGot(v) {
+        if (done) return;
+        done = true;
+        clearTimeout(to);
+        resolve(v);
+      }
+      window.__collectorWaiters = window.__collectorWaiters || [];
+      window.__collectorWaiters.push(onGot);
+    });
+  }
+
+  // 自動點一下畫面上的「查詢」按鈕，觸發系統送出一次帶授權的請求
+  function clickQueryButton() {
+    var nodes = document.querySelectorAll("button, a, [role='button']");
+    for (var i = 0; i < nodes.length; i++) {
+      if ((nodes[i].textContent || "").trim() === "查詢") { nodes[i].click(); return true; }
+    }
+    var all = document.querySelectorAll("*");
+    for (var j = 0; j < all.length; j++) {
+      var el = all[j];
+      if (el.children.length === 0 && (el.textContent || "").trim() === "查詢") {
+        (el.closest("button, a, [role='button']") || el).click();
+        return true;
       }
     }
-    return null;
+    return false;
+  }
+
+  function getAuth() {
+    installAuthWatcher();
+    if (window.__collectorAuth) return Promise.resolve(window.__collectorAuth);
+
+    say("嘗試自動觸發查詢以取得授權…");
+    var clicked = clickQueryButton();
+    say(clicked ? "已自動點擊查詢，等待系統回應…" : "找不到查詢按鈕，請手動按一次頁面上的「查詢」。", clicked ? null : "#F2A93B");
+
+    return waitForAuth(15000).catch(function () {
+      say("尚未取得授權，請確認已登入並停在勤務表列表頁，手動按一次「查詢」。", "#F2A93B");
+      return waitForAuth(60000);
+    });
   }
 
   /* ---------- 呼叫系統 API ---------- */
@@ -197,25 +273,30 @@
     });
   }
 
-  /* ---------- 單位名稱 ---------- */
-  // list 回傳只有單位 ID。優先從畫面表格取名稱，取不到就顯示 ID 後六碼。
+  /* ---------- 單位名稱 ----------
+     list 回傳只有單位 ID，不含名稱。系統回傳的順序不保證與畫面列表
+     順序一致（實測發現過對調），所以不能用「第幾筆對第幾列」這種
+     位置對應。改用「主管」欄位的文字做內容比對：API 回傳的 manager
+     物件（kind+name）與畫面上「主管」那欄顯示的文字是同一份資料，
+     兩邊内容一定一致，用它當 key 就不受順序影響。 */
 
   function nameMap() {
     var m = {};
     try {
       var tb = document.querySelector("table");
       if (!tb) return m;
-      var rows = tb.rows, di = -1, ui2 = -1;
+      var rows = tb.rows, ui2 = -1, mi = -1;
       var head = rows[0].cells;
       for (var c = 0; c < head.length; c++) {
         var h = (head[c].innerText || "").trim();
-        if (h === "日期") di = c;
         if (h === "單位") ui2 = c;
+        if (h === "主管") mi = c;
       }
-      if (ui2 < 0) return m;
+      if (ui2 < 0 || mi < 0) return m;
       for (var r = 1; r < rows.length; r++) {
         var nm = (rows[r].cells[ui2].innerText || "").trim();
-        if (nm) m["_row" + (r - 1)] = nm;
+        var mgr = (rows[r].cells[mi].innerText || "").trim();
+        if (nm && mgr) m[mgr] = nm;
       }
     } catch (e) {}
     return m;
@@ -244,11 +325,13 @@
         if (!quiet) say("取得 " + list.length + " 個單位，逐一取細表…");
         var units = [], tasks = [];
 
-        return list.reduce(function (chain, row, idx) {
+        return list.reduce(function (chain, row) {
           return chain.then(function () {
             return api("GET", "/api/v2/shift/" + row._id, null, auth)
               .then(function (d) {
-                var nm = names["_row" + idx] || ("單位…" + String(row.dept).slice(-6));
+                var mg = row.manager || {};
+                var mgrText = (mg.kind || "") + (mg.name || "");
+                var nm = names[mgrText] || ("單位…" + String(row.dept).slice(-6));
                 units.push(transform(row, d, nm));
                 tasks = tasks.concat(tasksOf(d, nm));
                 if (!quiet) say("  " + nm + "　日 " + row.day + " ／ 夜 " + row.night);
@@ -298,16 +381,12 @@
   var cfg = { url: localStorage.getItem(CFG_URL), tok: localStorage.getItem(CFG_TOK) };
   say("看板伺服器：" + cfg.url);
 
-  var auth = findAuth();
-  if (!auth) {
-    say("找不到登入授權，請確認已登入系統後重試。", "#E4392B");
-    return;
-  }
-  if (auth.indexOf("Bearer ") !== 0 && /^ey/.test(auth)) auth = "Bearer " + auth;
-  say("已取得登入授權。");
-
   function run(quiet) {
-    collect(auth, cfg, quiet)
+    getAuth()
+      .then(function (auth) {
+        say("已取得授權，開始查詢…");
+        return collect(auth, cfg, quiet);
+      })
       .then(function (p) {
         var t = new Date();
         say("完成　" + p2(t.getHours()) + ":" + p2(t.getMinutes()) +
@@ -315,13 +394,18 @@
       })
       .catch(function (e) {
         say("失敗：" + e.message, "#E4392B");
-        if (/401|403/.test(e.message)) say("授權可能已過期，請重新登入系統後再點一次書籤。", "#F2A93B");
+        if (/401|403/.test(e.message)) {
+          // 授權可能過期，清掉快取，下次自動重新攔截
+          window.__collectorAuth = null;
+          say("授權可能已過期，下次自動更新時會重新取得。", "#F2A93B");
+        }
       });
   }
 
   run(false);
 
   if (window.__collectTimer) clearInterval(window.__collectTimer);
-  window.__collectTimer = setInterval(function () { run(true); }, 5 * 60 * 1000);
-  say("已開啟自動更新，每 5 分鐘一次。關閉本視窗即停止。", "#93A6B6");
+  window.__collectTimer = setInterval(function () { run(true); }, PUSH_INTERVAL_MS);
+  say("已開啟自動更新，每 4 小時一次。關閉本視窗即停止。", "#93A6B6");
+  say("提醒：本分頁須保持開啟才會自動更新；系統若因閒置逾時登出，下次更新會自動嘗試重新取得授權。", "#93A6B6");
 })();

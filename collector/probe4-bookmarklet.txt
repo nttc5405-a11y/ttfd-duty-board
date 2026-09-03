@@ -1,0 +1,27 @@
+授權存放位置探測（第四階段）— 書籤版
+============================================================
+
+目的：採集器在 localStorage / sessionStorage 裡找不到登入授權，
+      這支列出瀏覽器實際存了什麼（只列鍵名與型別，敏感值會遮蔽），
+      藉此找出正確的存放位置。
+
+【怎麼裝】
+Ctrl+Shift+O →「⋮」→ 加入新書籤，名稱填：探測授權
+網址欄貼底下那一整行
+
+【怎麼用】— 一次即可
+1. 確認已登入 ttfd2，停在任一頁面
+2. 點一下「探測授權」書籤
+3. 右下角出現結果框，內容已自動全選 → Ctrl+C 複製，貼回對話
+4. 雙擊框可關閉
+
+【它做什麼】
+列出 localStorage、sessionStorage、Cookie 各有哪些鍵名，
+以及每個值的「長度與開頭幾個字元」（不是完整內容，避免外洩實際權杖）。
+含 token / auth / jwt / session / key 等關鍵字的鍵名會特別標記。
+不會送出任何資料，只顯示在你自己的螢幕上。
+
+
+─── 從這裡開始複製 ───
+javascript:(function(){function bit(v){if(v==null)return'(null)';var s=String(v);var mark=/^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\./.test(s)?' [看起來像JWT]':'';return'len='+s.length+' 開頭='+JSON.stringify(s.slice(0,24))+mark;}var L=['=== 授權存放位置探測 ===','URL: '+location.href,''];L.push('--- localStorage ('+localStorage.length+' 筆) ---');for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);var flag=/token|auth|jwt|session|key|user|identity/i.test(k)?' <<':'';L.push('  '+k+flag+' :: '+bit(localStorage.getItem(k)));}L.push('');L.push('--- sessionStorage ('+sessionStorage.length+' 筆) ---');for(var j=0;j<sessionStorage.length;j++){var k2=sessionStorage.key(j);var flag2=/token|auth|jwt|session|key|user|identity/i.test(k2)?' <<':'';L.push('  '+k2+flag2+' :: '+bit(sessionStorage.getItem(k2)));}L.push('');L.push('--- document.cookie ---');var ck=(document.cookie||'').split(';').map(function(s){return s.trim();}).filter(Boolean);if(!ck.length){L.push('  (空，或 httpOnly 無法讀取)');}else{ck.forEach(function(c){var eq=c.indexOf('=');var k3=eq>=0?c.slice(0,eq):c;var v3=eq>=0?c.slice(eq+1):'';L.push('  '+k3+' :: '+bit(v3));});}L.push('');L.push('=== 探測結束 ===');var d=document.createElement('textarea');d.value=L.join('\n');d.style.cssText='position:fixed;right:10px;bottom:10px;z-index:2147483647;width:560px;max-width:92vw;height:400px;background:#0e141a;color:#cfe0ee;font:11.5px/1.5 monospace;padding:10px;border:2px solid #3a4a5a;border-radius:5px;box-shadow:0 8px 30px rgba(0,0,0,.6)';d.title='雙擊可關閉';d.ondblclick=function(){d.parentNode.removeChild(d);};document.body.appendChild(d);d.select();})()
+─── 複製到這裡 ───
