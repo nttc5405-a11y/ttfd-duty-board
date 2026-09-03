@@ -1,0 +1,30 @@
+勤務表細部結構探測（第三階段，最後一支）— 書籤版
+============================================================
+
+目的：看清楚 tables 裡每小時的 {value, index} 到底裝什麼，
+      以及系統呼叫 API 時帶了哪些認證標頭。
+      知道這兩件事，採集器就寫得出來了。
+
+【怎麼裝】
+Ctrl+Shift+O →「⋮」→ 加入新書籤，名稱填：探測細表
+網址欄貼底下那一整行
+
+【怎麼用】— 一樣點兩次
+1. 在勤務表列表頁，點第一次「探測細表」→ 跳出「已安裝」提示
+2. 點進「成功分隊」的勤務表（一定要點進分隊，不是停在列表頁）
+3. 點第二次「探測細表」→ 結果框出現 → Ctrl+C 貼回對話
+4. 雙擊框可關閉
+
+【它做什麼】
+只攔截系統自己發出的請求，把勤務表的欄位定義與前兩位人員的
+前幾個小時完整印出來，用來對照畫面驗證解讀是否正確。
+
+安全設計：
+  - 認證標頭（Authorization / Token / Cookie）一律顯示 ***，只列出標頭名稱
+  - 不主動呼叫任何 API，不送出任何資料
+  - 重新整理頁面後即消失
+
+
+─── 從這裡開始複製 ───
+javascript:(function(){function D(j){var o=[];try{o.push('date: '+j.date);o.push('dept: '+j.dept);o.push('startHour: '+j.startHour);o.push('items: '+JSON.stringify(j.items));o.push('calls: '+JSON.stringify(j.calls));o.push('manager: '+(j.manager?(j.manager.no+' '+j.manager.kind+' '+j.manager.name):''));o.push('workers: '+(j.workers||[]).map(function(w){return w.no+'/'+w.name;}).join(', '));o.push('users 人數: '+((j.users||[]).length));o.push('');o.push('--- tables 前2人，h0 h1 h11 完整內容 ---');(j.tables||[]).slice(0,2).forEach(function(t){o.push('['+t.no+' '+t.name+']');[0,1,11].forEach(function(h){o.push('  h'+h+' = '+JSON.stringify(t[h]));});});o.push('');o.push('--- works 全部 ---');o.push(JSON.stringify(j.works).slice(0,1400));o.push('');o.push('--- leave ---');var lv=j.leave||{};o.push('keys: '+Object.keys(lv).join(', '));Object.keys(lv).forEach(function(k){o.push('  '+k+': '+(lv[k]||[]).map(function(p){return p.no+'/'+p.name;}).join(', '));});o.push('');o.push('remark: '+String(j.remark||'').slice(0,300));}catch(e){o.push('解析失敗: '+e.message);}return o.join('\n');}if(!window.__cap3){window.__cap3=[];var oh=XMLHttpRequest.prototype.setRequestHeader;XMLHttpRequest.prototype.setRequestHeader=function(k,v){this.__h=this.__h||[];this.__h.push(k+': '+(/authorization|token|cookie|key/i.test(k)?'***':String(v).slice(0,40)));return oh.apply(this,arguments);};var oo=XMLHttpRequest.prototype.open,os=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(m,u){this.__m=m;this.__u=u;return oo.apply(this,arguments);};XMLHttpRequest.prototype.send=function(b){var x=this;if(/\/api\/v2\/shift\//.test(x.__u||'')&&!/\/list$/.test(x.__u||'')){x.addEventListener('load',function(){var r='';try{r=D(JSON.parse(x.responseText));}catch(e){r='非JSON: '+String(x.responseText||'').slice(0,200);}window.__cap3.push({m:x.__m,u:x.__u,s:x.status,h:(x.__h||[]).join('\n    '),r:r});});}return os.apply(this,arguments);};var of=window.fetch;window.fetch=function(){var u=arguments[0],o=arguments[1]||{};var url=(typeof u==='string')?u:(u&&u.url)||'';var p=of.apply(this,arguments);if(/\/api\/v2\/shift\//.test(url)&&!/\/list$/.test(url)){p.then(function(res){res.clone().text().then(function(t){var r='';try{r=D(JSON.parse(t));}catch(e){r='非JSON: '+t.slice(0,200);}window.__cap3.push({m:o.method||'GET',u:url,s:res.status,h:'(fetch)',r:r});}).catch(function(){});}).catch(function(){});}return p;};alert('已安裝。\n\n請現在點進「成功分隊」的勤務表，\n然後再點一次這個書籤看結果。');return;}var L=['=== 細表結構 ===','共攔截 '+window.__cap3.length+' 筆',''];if(!window.__cap3.length){L.push('尚未攔截到細表請求。');L.push('請點進某個分隊的勤務表後，再點一次書籤。');}for(var i=0;i<window.__cap3.length&&i<3;i++){var c=window.__cap3[i];L.push('['+(i+1)+'] '+c.m+' '+c.u);L.push('  status: '+c.s);L.push('  請求標頭:');L.push('    '+c.h);L.push('');L.push(c.r);L.push('');L.push('----------------------------------------');}var d=document.createElement('textarea');d.value=L.join('\n');d.style.cssText='position:fixed;right:10px;bottom:10px;z-index:2147483647;width:600px;max-width:92vw;height:420px;background:#0e141a;color:#cfe0ee;font:11.5px/1.5 monospace;padding:10px;border:2px solid #3a4a5a;border-radius:5px;box-shadow:0 8px 30px rgba(0,0,0,.6)';d.title='雙擊可關閉';d.ondblclick=function(){d.parentNode.removeChild(d);};document.body.appendChild(d);d.select();})()
+─── 複製到這裡 ───

@@ -1,0 +1,31 @@
+勤務系統結構探測 — 書籤版
+============================================================
+
+這個做法不需要用 Console，也不需要解除 Chrome 的貼上保護。
+
+【怎麼裝】
+1. Chrome 按 Ctrl+Shift+O 開啟「書籤管理員」
+2. 右上角「⋮」→「加入新書籤」
+3. 名稱填：探測勤務表
+4. 網址欄貼上底下「─── 從這裡開始複製 ───」到「─── 複製到這裡 ───」之間那一整行
+5. 儲存
+
+【怎麼用】
+1. 登入 ttfd2，開到要探測的頁面（先列表頁，之後再分隊勤務表）
+2. 按 Ctrl+Shift+O 以外的方式打開書籤列：Ctrl+Shift+B 可顯示書籤列
+3. 點一下「探測勤務表」書籤
+4. 畫面右下角會出現一個黑色文字框，內容已自動全選 → 按 Ctrl+C 複製
+5. 貼回對話給我
+6. 看完後在框上「雙擊滑鼠左鍵」即可關閉
+
+【它做什麼】
+只做三件事，全部是讀取，不修改也不送出任何資料：
+  1. 列出這個頁面向伺服器要過哪些資料網址（找出資料介面）
+  2. 列出畫面上每個表格的欄位標題與前三列（找出表格結構）
+  3. 抓出「單位／日期／主管／上班人員」這幾行文字
+結果只顯示在你自己的螢幕上，不會傳到任何地方。
+
+
+─── 從這裡開始複製 ───
+javascript:(function(){var L=[];L.push('URL: '+location.href);L.push('TIME: '+new Date().toLocaleString('zh-TW'));var r=performance.getEntriesByType('resource'),a=[];for(var i=0;i<r.length;i++){var u=r[i].name;if(/\/api\//i.test(u)&&!/\.(js|css|png|jpg|jpeg|gif|svg|woff2?|ttf)(\?|$)/i.test(u)){u=u.replace(location.origin,'');if(a.indexOf(u)<0)a.push(u)}}L.push('');L.push('--- API ---');L.push(a.length?a.join('\n'):'(none detected)');var t=document.querySelectorAll('table');L.push('');L.push('--- TABLES: '+t.length+' ---');for(var j=0;j<t.length&&j<8;j++){var tb=t[j],rw=tb.rows;L.push('['+(j+1)+'] rows='+rw.length+' class='+(tb.className||'-'));for(var k=0;k<rw.length&&k<3;k++){var c=rw[k].cells,x=[];for(var m=0;m<c.length&&m<12;m++)x.push((c[m].innerText||'').replace(/\s+/g,' ').trim().slice(0,14)+(c[m].colSpan>1?'x'+c[m].colSpan:''));L.push('  r'+(k+1)+'('+c.length+'): '+x.join(' | '))}if(rw.length>3){var lc=rw[rw.length-1].cells,y=[];for(var n=0;n<lc.length&&n<12;n++)y.push((lc[n].innerText||'').replace(/\s+/g,' ').trim().slice(0,14));L.push('  last: '+y.join(' | '))}L.push('')}var bl=(document.body.innerText||'').split('\n');L.push('--- HEADER ---');for(var p=0;p<bl.length;p++){var ln=bl[p].trim();if(/^(單位|日期|主管|上班人員)[:：]/.test(ln))L.push('  '+ln.slice(0,90))}var d=document.createElement('textarea');d.value=L.join('\n');d.style.cssText='position:fixed;right:10px;bottom:10px;z-index:2147483647;width:540px;max-width:92vw;height:340px;background:#0e141a;color:#cfe0ee;font:11.5px/1.5 monospace;padding:10px;border:2px solid #3a4a5a;border-radius:5px;box-shadow:0 8px 30px rgba(0,0,0,.6)';d.title='雙擊可關閉';d.ondblclick=function(){d.parentNode.removeChild(d)};document.body.appendChild(d);d.select()})()
+─── 複製到這裡 ───

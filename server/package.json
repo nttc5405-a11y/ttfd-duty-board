@@ -1,0 +1,15 @@
+{
+  "name": "duty-board",
+  "version": "1.0.0",
+  "description": "臺東縣消防局成功大隊勤務看板 — 資料接收與看板供應",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

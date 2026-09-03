@@ -1,0 +1,33 @@
+勤務系統 API 格式探測（第二階段）— 書籤版
+============================================================
+
+【怎麼裝】
+同上一支：Ctrl+Shift+O 開書籤管理員 →「⋮」→ 加入新書籤
+名稱填：探測API
+網址欄貼底下那一整行（javascript: 開頭）
+
+【怎麼用】— 這支要點兩次
+1. 在勤務表列表頁，點第一次「探測API」書籤
+   → 跳出提示視窗「攔截器已安裝」，按確定
+2. 按一次頁面上的「查詢」按鈕
+   （若還想抓分隊勤務表的格式，接著再點進任一個分隊）
+3. 點第二次「探測API」書籤
+   → 右下角出現結果框，內容已自動全選 → Ctrl+C 複製，貼回對話
+4. 看完在框上雙擊即可關閉
+
+【它做什麼】
+不主動呼叫任何 API，只是「在旁邊看」系統自己發出的請求，
+記下請求網址、送出的參數、以及回應的「欄位結構」。
+
+安全設計：
+  - 只記欄位名稱與型別，內容值一律截短到 20 字
+  - 欄位名含 token / jwt / auth / password / secret 者，值顯示 ***
+  - 結果只出現在你自己的螢幕，不傳送到任何地方
+  - 重新整理頁面後攔截器自動消失，不會常駐
+
+完整可讀版（含中文註解）在同資料夾的 probe2.js，內容與底下這行一致。
+
+
+─── 從這裡開始複製 ───
+javascript:(function(){function S(o,d){d=d||0;if(d>4)return'…';if(o===null)return'null';if(Array.isArray(o))return o.length?('['+S(o[0],d+1)+'] x'+o.length):'[]';if(typeof o==='object'){var ks=Object.keys(o),out=[];for(var i=0;i<ks.length&&i<30;i++){var k=ks[i];if(/token|jwt|auth|password|secret|pwd/i.test(k)){out.push(k+':***');continue;}out.push(k+':'+S(o[k],d+1));}if(ks.length>30)out.push('…共'+ks.length+'欄');return'{'+out.join(', ')+'}';}var s=String(o);return typeof o+'('+(s.length>20?s.slice(0,20)+'…':s)+')';}function R(t){try{return S(JSON.parse(t));}catch(e){return'非JSON, 前150字: '+t.slice(0,150);}}if(!window.__cap){window.__cap=[];var of=window.fetch;window.fetch=function(){var u=arguments[0],o=arguments[1]||{};var url=(typeof u==='string')?u:(u&&u.url)||'';var p=of.apply(this,arguments);if(/\/api\//.test(url)){p.then(function(r){r.clone().text().then(function(t){window.__cap.push({m:o.method||'GET',u:url,b:o.body?String(o.body).slice(0,300):'',s:r.status,r:R(t)});}).catch(function(){});}).catch(function(){});}return p;};var oo=XMLHttpRequest.prototype.open,os=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(m,u){this.__m=m;this.__u=u;return oo.apply(this,arguments);};XMLHttpRequest.prototype.send=function(b){var x=this;if(/\/api\//.test(x.__u||'')){x.addEventListener('load',function(){window.__cap.push({m:x.__m,u:x.__u,b:b?String(b).slice(0,300):'',s:x.status,r:R(String(x.responseText||''))});});}return os.apply(this,arguments);};alert('攔截器已安裝。\n\n請現在按一次頁面上的「查詢」按鈕，\n或點進某個分隊的勤務表，\n然後再點一次這個書籤看結果。');return;}var L=['=== 攔截結果 ===','URL: '+location.href,'共攔截 '+window.__cap.length+' 筆',''];for(var i=0;i<window.__cap.length&&i<12;i++){var c=window.__cap[i];L.push('['+(i+1)+'] '+c.m+' '+c.u);L.push('  status: '+c.s);if(c.b)L.push('  送出: '+c.b);L.push('  回應: '+c.r);L.push('');}var d=document.createElement('textarea');d.value=L.join('\n');d.style.cssText='position:fixed;right:10px;bottom:10px;z-index:2147483647;width:560px;max-width:92vw;height:380px;background:#0e141a;color:#cfe0ee;font:11.5px/1.5 monospace;padding:10px;border:2px solid #3a4a5a;border-radius:5px;box-shadow:0 8px 30px rgba(0,0,0,.6)';d.title='雙擊可關閉';d.ondblclick=function(){d.parentNode.removeChild(d);};document.body.appendChild(d);d.select();})()
+─── 複製到這裡 ───

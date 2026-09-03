@@ -1,0 +1,885 @@
+<title>成功大隊勤務看板</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+
+<style>
+:root{
+  --ground:#0B1015;
+  --surface:#141C24;
+  --surface-2:#1B2530;
+  --surface-3:#212D3A;
+  --line:#263341;
+  --line-soft:#1D2833;
+  --ink:#EAF0F5;
+  --ink-2:#93A6B6;
+  --ink-3:#5E7183;
+  --red:#E4392B;
+  --red-dim:#7E2019;
+  --green:#3DBE6B;
+  --amber:#F2A93B;
+  --blue:#4A9FD8;
+  --violet:#9B8CD8;
+
+  --f-cond:"Barlow Condensed","Noto Sans TC","Microsoft JhengHei",sans-serif;
+  --f-body:"Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,monospace;
+
+  --pad:clamp(12px,1.3vw,22px);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--ground);
+  color:var(--ink);
+  font-family:var(--f-body);
+  font-size:clamp(13px,.95vw,16px);
+  line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ================= 頂部 ================= */
+.topbar{
+  display:grid;
+  grid-template-columns:1fr auto 1fr;
+  align-items:center;
+  gap:var(--pad);
+  padding:calc(var(--pad)*.8) var(--pad);
+  background:linear-gradient(180deg,#131C25,#0E151C);
+  border-bottom:2px solid var(--red);
+}
+.unit{display:flex;flex-direction:column;gap:2px;min-width:0}
+.unit-name{
+  font-weight:900;
+  font-size:clamp(16px,1.4vw,23px);
+  letter-spacing:.04em;
+}
+.unit-sub{
+  font-size:clamp(11px,.82vw,13.5px);
+  color:var(--ink-2);
+  font-variant-numeric:tabular-nums;
+}
+.clockwrap{text-align:center;line-height:1}
+.clock{
+  font-family:var(--f-cond);
+  font-weight:600;
+  font-size:clamp(40px,5.4vw,92px);
+  font-variant-numeric:tabular-nums;
+  display:block;
+}
+.clock .sec{color:var(--ink-3);font-size:.5em;margin-left:.08em}
+.clock-sub{
+  font-size:clamp(10px,.8vw,13px);
+  color:var(--ink-2);
+  letter-spacing:.16em;
+  margin-top:5px;
+}
+.slotwrap{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.slot-label{font-size:clamp(9.5px,.7vw,11.5px);color:var(--ink-3);letter-spacing:.2em}
+.slot{
+  font-family:var(--f-cond);
+  font-weight:700;
+  font-size:clamp(26px,3vw,52px);
+  line-height:1;
+  color:var(--red);
+  font-variant-numeric:tabular-nums;
+}
+.slot-next{font-size:clamp(10px,.76vw,12.5px);color:var(--ink-3);font-variant-numeric:tabular-nums}
+
+/* ================= 告示 ================= */
+.notice{
+  display:flex;align-items:flex-start;gap:9px;
+  padding:8px var(--pad);
+  background:rgba(242,169,59,.09);
+  border-bottom:1px solid rgba(242,169,59,.26);
+  font-size:clamp(10.5px,.8vw,13px);
+  color:var(--amber);
+}
+.notice span:last-child{flex:1;min-width:0}
+.notice b{color:#FFD08A;font-weight:700}
+.notice-dot{
+  width:7px;height:7px;border-radius:50%;
+  background:var(--amber);flex:none;margin-top:.45em;
+  animation:pulse 2.4s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* ================= 大隊總覽帶 ================= */
+.strip{
+  display:flex;align-items:stretch;gap:1px;
+  background:var(--line-soft);
+  border-bottom:1px solid var(--line);
+  overflow-x:auto;
+}
+.strip-total{
+  display:flex;align-items:center;gap:14px;
+  padding:10px var(--pad);
+  background:var(--surface-2);
+  flex:none;
+}
+.strip-total .big{
+  font-family:var(--f-cond);
+  font-weight:700;
+  font-size:clamp(30px,3vw,48px);
+  line-height:1;
+  font-variant-numeric:tabular-nums;
+  color:var(--green);
+}
+.strip-total .lbl{font-size:clamp(10px,.78vw,12.5px);color:var(--ink-2);letter-spacing:.1em}
+.strip-cell{
+  flex:1 1 0;min-width:118px;
+  background:var(--surface);
+  padding:9px 12px;
+}
+.strip-cell .u{font-weight:700;font-size:clamp(12px,.92vw,15px)}
+.strip-cell .c{font-size:clamp(10px,.75vw,12px);color:var(--ink-3);margin-top:1px}
+.strip-cell .n{
+  font-family:var(--f-mono);
+  font-size:clamp(11px,.82vw,13.5px);
+  color:var(--ink-2);
+  margin-top:4px;
+  font-variant-numeric:tabular-nums;
+}
+.strip-cell .n b{color:var(--ink);font-weight:600}
+
+/* ================= 主版面 ================= */
+.board{
+  display:grid;
+  grid-template-columns:2.05fr 1fr;
+  gap:var(--pad);
+  padding:var(--pad);
+  align-items:start;
+}
+.col{display:flex;flex-direction:column;gap:var(--pad);min-width:0}
+
+.panel{
+  min-width:0;
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:4px;
+  overflow:hidden;
+}
+.panel-head{
+  display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  padding:10px 13px;
+  background:var(--surface-2);
+  border-bottom:1px solid var(--line);
+}
+.panel-title{font-weight:700;font-size:clamp(13px,1.05vw,17px);letter-spacing:.07em}
+.panel-meta{
+  font-family:var(--f-mono);
+  font-size:clamp(10px,.78vw,12.5px);
+  color:var(--ink-2);
+  font-variant-numeric:tabular-nums;
+}
+.panel-body{padding:13px}
+
+/* ---- 分隊編組卡 ---- */
+.squads{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:var(--pad);
+}
+.sq{
+  min-width:0;
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:4px;
+  overflow:hidden;
+}
+.sq-head{
+  display:flex;align-items:center;gap:9px;
+  padding:9px 12px;
+  background:var(--surface-2);
+  border-bottom:1px solid var(--line);
+  border-left:3px solid var(--red);
+}
+.sq-name{font-weight:700;font-size:clamp(14px,1.1vw,18px)}
+.sq-chief{font-size:clamp(10px,.76vw,12.5px);color:var(--ink-3)}
+.sq-count{
+  margin-left:auto;
+  font-family:var(--f-mono);
+  font-size:clamp(10.5px,.8vw,13px);
+  color:var(--ink-2);
+  white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+}
+.sq-count b{color:var(--green);font-weight:600}
+.sq-body{padding:11px 12px}
+
+.row{
+  display:grid;
+  grid-template-columns:76px 1fr;
+  gap:9px;
+  padding:5px 0;
+  border-bottom:1px solid rgba(38,51,65,.45);
+  align-items:baseline;
+}
+.row:last-child{border-bottom:none}
+.row-k{
+  font-size:clamp(10.5px,.8vw,13px);
+  color:var(--ink-3);
+  letter-spacing:.05em;
+  display:flex;align-items:center;gap:6px;
+}
+.row-k .dot{width:3px;height:12px;border-radius:1px;flex:none;background:var(--ink-3)}
+.row.duty .row-k .dot{background:var(--red)}
+.row.car .row-k .dot{background:var(--blue)}
+.row.standby .row-k .dot{background:var(--green)}
+.row.rest .row-k .dot{background:var(--ink-3)}
+.row-v{
+  font-size:clamp(12px,.95vw,15.5px);
+  font-weight:500;
+  min-width:0;
+  overflow-wrap:anywhere;
+}
+.row.rest .row-v{color:var(--ink-3);font-weight:400}
+.row-v.none{color:var(--ink-3);font-weight:400}
+.row.car .row-k{color:var(--blue)}
+.by-id .row-v{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+
+.sq-note{
+  margin-top:9px;padding-top:8px;
+  border-top:1px solid var(--line-soft);
+  font-size:clamp(10px,.76vw,12.5px);
+  color:var(--ink-3);
+  line-height:1.5;
+}
+.sq-thin{
+  padding:16px 12px;
+  color:var(--ink-3);
+  font-size:clamp(11px,.85vw,13.5px);
+  line-height:1.6;
+}
+.sq-thin .ids{
+  font-family:var(--f-mono);
+  color:var(--ink-2);
+  font-size:1.05em;
+}
+
+/* ---- 當日勤務 ---- */
+.task{
+  display:grid;
+  grid-template-columns:auto 1fr;
+  gap:10px;
+  padding:7px 0;
+  border-bottom:1px solid rgba(38,51,65,.45);
+}
+.task:last-child{border-bottom:none}
+.task-time{
+  font-family:var(--f-mono);
+  font-size:clamp(10.5px,.82vw,13px);
+  color:var(--ink-2);
+  white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+  padding-top:1px;
+}
+.task-main{min-width:0}
+.task-name{font-size:clamp(12px,.95vw,15px);overflow-wrap:anywhere}
+.task-sub{
+  font-size:clamp(10px,.76vw,12.5px);
+  color:var(--ink-3);
+  margin-top:2px;
+}
+.task-sub .who{color:var(--ink-2);font-family:var(--f-mono)}
+.task-unit{
+  display:inline-block;
+  font-size:clamp(9.5px,.7vw,11.5px);
+  padding:1px 6px;border-radius:2px;
+  background:rgba(74,159,216,.13);color:var(--blue);
+  margin-right:6px;
+}
+.task.live{
+  background:rgba(228,57,43,.07);
+  margin-inline:-7px;padding-inline:7px;
+  border-left:2px solid var(--red);
+}
+.task.live .task-time{color:#FF8478}
+.live-tag{
+  font-size:clamp(9px,.68vw,11px);
+  font-weight:700;letter-spacing:.14em;
+  color:var(--red);margin-left:7px;
+}
+
+/* ---- 行事曆 ---- */
+.cal-day{margin-bottom:13px}
+.cal-day:last-child{margin-bottom:0}
+.cal-daylabel{
+  display:flex;align-items:baseline;gap:8px;
+  padding-bottom:5px;
+  border-bottom:1px solid var(--line-soft);
+  margin-bottom:7px;
+}
+.cal-date{
+  font-family:var(--f-cond);font-weight:700;
+  font-size:clamp(16px,1.35vw,23px);line-height:1;
+  font-variant-numeric:tabular-nums;
+}
+.cal-dow{font-size:clamp(10px,.8vw,12.5px);color:var(--ink-2);letter-spacing:.1em}
+.cal-today{
+  margin-left:auto;
+  font-size:clamp(9px,.68vw,11px);font-weight:700;letter-spacing:.14em;
+  color:var(--red);border:1px solid var(--red-dim);
+  padding:1px 6px;border-radius:2px;
+}
+.ev{
+  display:grid;grid-template-columns:auto 1fr;gap:9px;
+  padding:6px 0;
+  border-bottom:1px solid rgba(38,51,65,.4);
+}
+.ev:last-child{border-bottom:none}
+.ev-time{
+  font-family:var(--f-mono);
+  font-size:clamp(10px,.78vw,12.5px);
+  color:var(--ink-2);white-space:nowrap;
+  font-variant-numeric:tabular-nums;padding-top:2px;
+}
+.ev-time.allday{color:var(--ink-3)}
+.ev-main{min-width:0}
+.ev-title{font-size:clamp(11.5px,.9vw,14px);line-height:1.4;overflow-wrap:anywhere}
+.ev-tag{
+  display:inline-block;
+  font-size:clamp(9px,.68vw,11px);
+  padding:1px 5px;border-radius:2px;margin-top:3px;
+}
+.ev-tag.t1{background:rgba(74,159,216,.13);color:var(--blue)}
+.ev-tag.t2{background:rgba(155,140,216,.13);color:var(--violet)}
+.ev-loc{font-size:clamp(9.5px,.72vw,11.5px);color:var(--ink-3);margin-top:2px}
+.ev.now{
+  background:rgba(228,57,43,.07);
+  margin-inline:-6px;padding-inline:6px;
+  border-left:2px solid var(--red);
+}
+.cal-empty{color:var(--ink-3);font-size:clamp(11px,.85vw,13px);padding:5px 0}
+
+/* ---- 假別 ---- */
+.leave-unit{margin-bottom:13px}
+.leave-unit:last-child{margin-bottom:0}
+.leave-title{
+  font-weight:700;
+  font-size:clamp(12px,.92vw,15px);
+  padding-bottom:5px;margin-bottom:6px;
+  border-bottom:1px solid var(--line-soft);
+}
+.leave{display:flex;flex-direction:column;gap:7px}
+.leave-row{
+  display:grid;grid-template-columns:64px 1fr;gap:9px;
+  font-size:clamp(11px,.85vw,13.5px);
+  padding:5px 0;
+  border-bottom:1px solid rgba(38,51,65,.4);
+}
+.leave-row:last-child{border-bottom:none}
+.leave-k{color:var(--ink-3);font-size:clamp(10px,.78vw,12.5px)}
+.leave-v{min-width:0;overflow-wrap:anywhere;color:var(--ink-2)}
+
+/* ---- 頁尾 ---- */
+.foot{
+  display:flex;flex-wrap:wrap;align-items:center;gap:7px 18px;
+  padding:10px var(--pad) calc(var(--pad)*1.2);
+  color:var(--ink-3);
+  font-size:clamp(10px,.76vw,12.5px);
+  border-top:1px solid var(--line-soft);
+}
+.foot .live{display:flex;align-items:center;gap:6px}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2.4s ease-in-out infinite}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ===== 窄螢幕覆寫：務必放在樣式表最後，否則被上面的桌機規則蓋掉 ===== */
+@media (max-width:1240px){
+  .board{grid-template-columns:1fr}
+}
+@media (max-width:820px){
+  .squads{grid-template-columns:1fr}
+  .topbar{grid-template-columns:1fr;justify-items:center;text-align:center;gap:9px}
+  .unit,.slotwrap{align-items:center}
+  .strip{flex-wrap:wrap}
+  .strip-total{width:100%;justify-content:center}
+  .strip-cell{min-width:calc(50% - 1px)}
+  .row{grid-template-columns:66px 1fr}
+}
+</style>
+
+<div class="topbar">
+  <div class="unit">
+    <span class="unit-name">臺東縣消防局　成功大隊</span>
+    <span class="unit-sub" id="rocdate">—</span>
+  </div>
+  <div class="clockwrap">
+    <span class="clock" id="clock">--:--<span class="sec">--</span></span>
+    <div class="clock-sub">當前時間</div>
+  </div>
+  <div class="slotwrap">
+    <span class="slot-label">當前勤務時段</span>
+    <span class="slot" id="slot">--–--</span>
+    <span class="slot-next" id="slotnext">—</span>
+  </div>
+</div>
+
+<div class="notice" id="notice">
+  <span class="notice-dot"></span>
+  <span id="noticetext"><b>勤務資料為 2026-09-03 的畫面快照</b>　　尚未收到採集器送來的即時資料，畫面顯示內建範例。行事曆為 Google 行事曆真實資料。</span>
+</div>
+
+<div class="strip" id="strip"></div>
+
+<div class="board">
+  <div class="col">
+    <div class="squads" id="squads"></div>
+  </div>
+
+  <div class="col">
+    <section class="panel">
+      <div class="panel-head">
+        <span class="panel-title">當日勤務</span>
+        <span class="panel-meta" id="taskmeta">—</span>
+      </div>
+      <div class="panel-body" id="tasks"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <span class="panel-title">行程</span>
+        <span class="panel-meta">Google 行事曆</span>
+      </div>
+      <div class="panel-body" id="calbody"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <span class="panel-title">今日未到勤</span>
+        <span class="panel-meta" id="leavemeta">—</span>
+      </div>
+      <div class="panel-body" id="leave"></div>
+    </section>
+  </div>
+</div>
+
+<div class="foot">
+  <span class="live"><span class="live-dot"></span>時間與時段每秒更新</span>
+  <span>資料來源：勤務表列表 + 各分隊勤務表（ttfd2.firemis.tw）＋ Google 行事曆</span>
+  <span id="lastsync">—</span>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var DOW=["星期日","星期一","星期二","星期三","星期四","星期五","星期六"];
+  function p2(n){return n<10?"0"+n:""+n;}
+  function esc(s){
+    return String(s==null?"":s).replace(/[&<>"]/g,function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];
+    });
+  }
+
+  /* ===================================================================
+     資料層 — 之後接上系統時，只要換掉這個物件即可，畫面程式不用動。
+     來源：勤務表列表（#/shift/list）＋ 各分隊勤務表，2026-09-03。
+     時段 key 格式 "HH-HH"，與系統勤務表的列完全一致。
+     =================================================================== */
+
+  // 成功分隊：以姓名顯示。車欄順序 = 系統作戰編組欄位順序。
+  var CG_CARS=["91車","71車","16車","11、61車"];
+  var CG=[
+    ["08-09","13",["16,4","13","13","10"],"",""],
+    ["09-10","13",["16,4","13","13","10"],"",""],
+    ["10-11","13",["10,16","13","13","16"],"","4"],
+    ["11-12","13",["10,16","13","13","16"],"","4"],
+    ["12-13","4",["13,10","4","17","10"],"","16"],
+    ["13-14","4",["13,10","4","17","10"],"","16"],
+    ["14-15","16",["10,13","16","4","4"],"","17"],
+    ["15-16","16",["10,13","16","4","4"],"","17"],
+    ["16-17","16",["13,17","16","4","17"],"","10"],
+    ["17-18","16",["13,17","16","4","17"],"","10"],
+    ["18-19","10",["17,4","10","4","17"],"","13,16"],
+    ["19-20","10",["17,4","10","4","17"],"","13,16"],
+    ["20-21","10",["17,16","10","13","16"],"","4"],
+    ["21-22","10",["17,16","10","13","16"],"","4"],
+    ["22-23","4",["16,10","13","4","10"],"","17"],
+    ["23-24","4",["16,10","13","4","10"],"","17"],
+    ["00-01","4",["13,16","17","4","17"],"","10"],
+    ["01-02","4",["13,16","17","4","17"],"","10"],
+    ["02-03","4",["13,10","16","17","4"],"",""],
+    ["03-04","4",["13,10","16","17","4"],"",""],
+    ["04-05","4",["10,16","17","13","4"],"",""],
+    ["05-06","4",["10,16","17","13","4"],"",""],
+    ["06-07","4",["17,16","4","10","4"],"","13"],
+    ["07-08","4",["17,16","4","10","4"],"","13"]
+  ];
+
+  // 長濱分隊：以編號顯示（系統可切換編號／姓名）。
+  var CB_CARS=["16車","61車","91車"];
+  var CB=[
+    ["08-09","14",["8","8","2,3"],"","1"],
+    ["09-10","14",["8","8","2,3"],"","1"],
+    ["10-11","1",["1","3","2,3"],"14","8"],
+    ["11-12","1",["1","3","2,3"],"14","8"],
+    ["12-13","1",["8","1","2,3"],"14",""],
+    ["13-14","1",["8","1","2,3"],"14",""],
+    ["14-15","14",["8","3","2,3"],"","1"],
+    ["15-16","14",["8","3","2,3"],"","1"],
+    ["16-17","14",["1","2","2,3"],"","8"],
+    ["17-18","14",["1","2","2,3"],"","8"],
+    ["18-19","3",["1","3","8,3"],"14","2"],
+    ["19-20","3",["1","3","8,3"],"14","2"],
+    ["20-21","14",["1","8","2,8"],"","3"],
+    ["21-22","14",["1","8","2,8"],"","3"],
+    ["22-23","8",["1","8","2,8"],"14","3"],
+    ["23-24","8",["1","8","2,8"],"14","3"],
+    ["00-01","8",["1","8","2,3"],"14",""],
+    ["01-02","8",["1","8","2,3"],"14",""],
+    ["02-03","8",["1","8","2,3"],"14",""],
+    ["03-04","8",["1","8","2,3"],"14",""],
+    ["04-05","8",["1","8","2,3"],"14",""],
+    ["05-06","8",["1","8","2,3"],"14",""],
+    ["06-07","8",["1","8","3,8"],"14","2"],
+    ["07-08","8",["1","8","3,8"],"14","2"]
+  ];
+
+  function toMap(rows){
+    var m={};
+    rows.forEach(function(r){
+      m[r[0]]={duty:r[1],cars:r[2],standby:r[3],rest:r[4]};
+    });
+    return m;
+  }
+
+  var UNITS=[
+    {name:"成功大隊",chief:"副大隊長 2",day:2,night:2,ids:"2,5",detail:null},
+    {name:"成功分隊",chief:"隊員 13",day:4,night:5,ids:"4,10,13,16,17",
+     roster:"4、10、13、16、17",
+     byId:true,cars:CG_CARS,slots:toMap(CG),
+     note:"出勤原則：救護 BLS（91車2名）、救護 ALS（91車及71車3名）、火警（11、16、61、91車）、車禍救援（11、71、91車）、救溺（16、71、91車、後勤車、船艇、水車）、查察或宣導（16車2名）",
+     leave:{輪休:["1","2","5","6","9","11","12","15"],
+            補假:["14"],休假:["8"],公差假:["7"],半日勤務:[],事病假:[]}},
+    {name:"長濱分隊",chief:"分隊長",day:5,night:5,ids:"1,2,3,8,14",
+     roster:"1、2、3、8、14",
+     byId:true,cars:CB_CARS,slots:toMap(CB),
+     note:"出勤原則：水域勤務以後勤車（含IRB）、91車優先；山域勤務以後勤車（山域共裝）、91車優先；火警與車禍救助以 11、91車優先。"},
+    {name:"東河分隊",chief:"隊員",day:3,night:3,ids:"2,5,8",detail:null},
+    {name:"泰源分隊",chief:"隊員",day:3,night:3,ids:"5,6,7",detail:null},
+    {name:"都蘭分隊",chief:"隊員",day:4,night:4,ids:"4,9,10,11",detail:null}
+  ];
+
+  // 當日勤務（跨單位彙總）
+  var TASKS=[
+    {unit:"成功分隊",time:"08-09",name:"車輛及裝備器材保養"},
+    {unit:"成功分隊",time:"08-14",name:"醫療訪視及重機排氣檢驗",who:"17",loc:"都蘭分隊、台東檢驗廠"},
+    {unit:"長濱分隊",time:"08-09",name:"車輛季裝備器材保養"},
+    {unit:"長濱分隊",time:"09-12",name:"醫療訪視",who:"8",car:"長濱16",loc:"都蘭"},
+    {unit:"長濱分隊",time:"09-12",name:"水源查察（一）",who:"2,3",car:"長濱91",loc:"轄內"},
+    {unit:"長濱分隊",time:"10",name:"程序書會議（線上）",who:"2"},
+    {unit:"長濱分隊",time:"12-17",name:"長濱16車 S 保養",who:"8",car:"長濱16",loc:"台東市"},
+    {unit:"長濱分隊",time:"14-17",name:"學科（消防及災害防救專業法令）"}
+  ];
+
+  // Google 行事曆真實資料（2026-09-03 取得）
+  var CAL=[
+    {d:"2026-09-03",items:[
+      {allday:true,title:"廳舍檢修申報",cal:"大隊",tag:"t1"},
+      {t:"08:30–12:00",title:"醫療訪視（分隊）",cal:"大隊",tag:"t1"},
+      {t:"09:00–10:00",title:"週報",cal:"大隊",tag:"t1"},
+      {t:"13:30–15:00",title:"國家防災日場地佈設評選會議",cal:"局本部",tag:"t2",loc:"3 樓會議室"},
+      {t:"15:00–16:00",title:"專案安全會議",cal:"局本部",tag:"t2",loc:"四樓應變中心"}
+    ]},
+    {d:"2026-09-04",items:[
+      {t:"09:30–12:00",title:"擴大消防業務會報",cal:"局本部",tag:"t2",loc:"中央災害應變中心"}
+    ]},
+    {d:"2026-09-05",items:[
+      {allday:true,title:"職業安全健康諮詢服務",cal:"大隊",tag:"t1"}
+    ]},
+    {d:"2026-09-07",items:[
+      {t:"10:00–12:00",title:"國家防災日大規模震災救災動員演練",cal:"大隊",tag:"t1",loc:"線上參與"}
+    ]},
+    {d:"2026-09-08",items:[
+      {t:"09:00–12:00",title:"應變管理資訊系統（EMIC2.0）演練",cal:"局本部",tag:"t2"},
+      {t:"14:30–15:30",title:"防災教育館複驗",cal:"局本部",tag:"t2"}
+    ]},
+    {d:"2026-09-09",items:[
+      {t:"14:30–15:30",title:"人事甄審會議",cal:"局本部",tag:"t2",loc:"3 樓會議室"}
+    ]}
+  ];
+
+  /* =================== 繪製 =================== */
+
+  function slotKey(h){ return p2(h)+"-"+p2(h+1); }
+
+  function renderStrip(){
+    var host=document.getElementById("strip");
+    if(!host) return;
+    var totalDay=0,totalNight=0;
+    UNITS.forEach(function(u){ totalDay+=u.day; totalNight+=u.night; });
+
+    var html='<div class="strip-total">'+
+      '<span class="big">'+totalDay+"</span>"+
+      '<span class="lbl">日間 08-20<br>全大隊在班</span>'+
+      '<span class="big">'+totalNight+"</span>"+
+      '<span class="lbl">夜間 20-08<br>全大隊在班</span>'+
+      "</div>";
+
+    UNITS.forEach(function(u){
+      html+='<div class="strip-cell">'+
+        '<div class="u">'+esc(u.name)+"</div>"+
+        '<div class="c">'+esc(u.chief)+"</div>"+
+        '<div class="n">日 <b>'+u.day+"</b>　夜 <b>"+u.night+"</b></div>"+
+        "</div>";
+    });
+    host.innerHTML=html;
+  }
+
+  function renderSquads(key){
+    var host=document.getElementById("squads");
+    if(!host) return;
+    var html="";
+
+    UNITS.forEach(function(u){
+      html+='<div class="sq">';
+      html+='<div class="sq-head">';
+      html+='<span class="sq-name">'+esc(u.name)+"</span>";
+      html+='<span class="sq-chief">'+esc(u.chief)+"</span>";
+      html+='<span class="sq-count">日 <b>'+u.day+"</b> ／ 夜 <b>"+u.night+"</b></span>";
+      html+="</div>";
+
+      if(u.slots&&u.slots[key]){
+        var s=u.slots[key];
+        html+='<div class="sq-body'+(u.byId?" by-id":"")+'">';
+
+        html+='<div class="row duty"><span class="row-k"><span class="dot"></span>值班</span>'+
+              '<span class="row-v'+(s.duty?"":" none")+'">'+esc(s.duty||"—")+"</span></div>";
+
+        u.cars.forEach(function(car,i){
+          var v=s.cars[i]||"";
+          html+='<div class="row car"><span class="row-k"><span class="dot"></span>'+esc(car)+"</span>"+
+                '<span class="row-v'+(v?"":" none")+'">'+esc(v||"—")+"</span></div>";
+        });
+
+        html+='<div class="row standby"><span class="row-k"><span class="dot"></span>備勤</span>'+
+              '<span class="row-v'+(s.standby?"":" none")+'">'+esc(s.standby||"—")+"</span></div>";
+
+        html+='<div class="row rest"><span class="row-k"><span class="dot"></span>休息</span>'+
+              '<span class="row-v'+(s.rest?"":" none")+'">'+esc(s.rest||"—")+"</span></div>";
+
+        if(u.note) html+='<div class="sq-note">'+esc(u.note)+"</div>";
+        html+="</div>";
+      }else{
+        html+='<div class="sq-thin">上班人員（編號）<span class="ids">'+esc(u.ids)+"</span>"+
+              "<br>此單位在列表頁只帶出人數與編號，逐時編組需點進該單位勤務表才有。</div>";
+      }
+      html+="</div>";
+    });
+    host.innerHTML=html;
+  }
+
+  function renderLeave(){
+    var host=document.getElementById("leave");
+    if(!host) return;
+    var html="",count=0;
+
+    UNITS.forEach(function(u){
+      if(!u.leave) return;
+      var rows="";
+      Object.keys(u.leave).forEach(function(k){
+        var arr=u.leave[k]||[];
+        if(!arr.length) return;
+        var names=arr.map(function(p){
+          return (typeof p==="string")?p:(p.name||p.no||"");
+        }).join("、");
+        rows+='<div class="leave-row"><span class="leave-k">'+esc(k)+
+              '</span><span class="leave-v">'+esc(names)+"</span></div>";
+        count+=arr.length;
+      });
+      if(rows){
+        html+='<div class="leave-unit"><div class="leave-title">'+esc(u.name)+
+              '</div><div class="leave">'+rows+"</div></div>";
+      }
+    });
+
+    host.innerHTML=html||'<div class="cal-empty">尚無假別資料</div>';
+    var m=document.getElementById("leavemeta");
+    if(m) m.textContent=count?("共 "+count+" 人"):"—";
+  }
+
+  function parseRange(t){
+    // "08-14" -> [8,14]；"10" -> [10,11]
+    var m=String(t).match(/^(\d{1,2})-(\d{1,2})$/);
+    if(m) return [+m[1],+m[2]];
+    var s=String(t).match(/^(\d{1,2})$/);
+    if(s) return [+s[1],+s[1]+1];
+    return null;
+  }
+
+  function renderTasks(now){
+    var host=document.getElementById("tasks");
+    if(!host) return;
+    var h=now.getHours(), live=0, html="";
+
+    TASKS.forEach(function(t){
+      var r=parseRange(t.time);
+      var on=r&&h>=r[0]&&h<r[1];
+      if(on) live++;
+      html+='<div class="task'+(on?" live":"")+'">';
+      html+='<span class="task-time">'+esc(t.time)+"</span>";
+      html+='<span class="task-main">';
+      html+='<span class="task-name"><span class="task-unit">'+esc(t.unit)+"</span>"+esc(t.name)+
+            (on?'<span class="live-tag">進行中</span>':"")+"</span>";
+      var sub=[];
+      if(t.who) sub.push('人員 <span class="who">'+esc(t.who)+"</span>");
+      if(t.car) sub.push("車輛 "+esc(t.car));
+      if(t.loc) sub.push("地點 "+esc(t.loc));
+      if(sub.length) html+='<span class="task-sub">'+sub.join("　")+"</span>";
+      html+="</span></div>";
+    });
+
+    host.innerHTML=html;
+    var meta=document.getElementById("taskmeta");
+    if(meta) meta.textContent=live>0?("進行中 "+live+" 項"):"目前無進行中項目";
+  }
+
+  function renderCal(now){
+    var host=document.getElementById("calbody");
+    if(!host) return;
+    var todayKey=now.getFullYear()+"-"+p2(now.getMonth()+1)+"-"+p2(now.getDate());
+    var nowMin=now.getHours()*60+now.getMinutes();
+    var html="";
+
+    CAL.forEach(function(day){
+      var pt=day.d.split("-");
+      var dt=new Date(+pt[0],+pt[1]-1,+pt[2]);
+      var isToday=(day.d===todayKey);
+
+      html+='<div class="cal-day"><div class="cal-daylabel">';
+      html+='<span class="cal-date">'+(+pt[1])+"/"+(+pt[2])+"</span>";
+      html+='<span class="cal-dow">'+DOW[dt.getDay()]+"</span>";
+      if(isToday) html+='<span class="cal-today">今日</span>';
+      html+="</div>";
+
+      if(!day.items.length) html+='<div class="cal-empty">無行程</div>';
+
+      day.items.forEach(function(ev){
+        var live=false;
+        if(isToday&&ev.t){
+          var m=ev.t.match(/(\d{2}):(\d{2}).(\d{2}):(\d{2})/);
+          if(m){
+            var s=+m[1]*60+ +m[2], e=+m[3]*60+ +m[4];
+            live=(nowMin>=s&&nowMin<e);
+          }
+        }
+        html+='<div class="ev'+(live?" now":"")+'">';
+        html+='<span class="ev-time'+(ev.allday?" allday":"")+'">'+(ev.allday?"全天":esc(ev.t))+"</span>";
+        html+='<span class="ev-main"><span class="ev-title">'+esc(ev.title)+"</span>";
+        if(ev.loc) html+='<div class="ev-loc">'+esc(ev.loc)+"</div>";
+        html+='<span class="ev-tag '+ev.tag+'">'+esc(ev.cal)+"</span>";
+        html+="</span></div>";
+      });
+      html+="</div>";
+    });
+    host.innerHTML=html;
+  }
+
+  var lastKey=null, lastMin=-1;
+
+  function tick(){
+    var now=new Date();
+    var h=now.getHours(), mi=now.getMinutes();
+    var nowMin=h*60+mi;
+    var key=slotKey(h);
+
+    var c=document.getElementById("clock");
+    if(c) c.innerHTML=p2(h)+":"+p2(mi)+'<span class="sec">'+p2(now.getSeconds())+"</span>";
+
+    var rd=document.getElementById("rocdate");
+    if(rd){
+      rd.textContent="民國 "+(now.getFullYear()-1911)+" 年 "+(now.getMonth()+1)+" 月 "+
+                     now.getDate()+" 日　"+DOW[now.getDay()];
+    }
+
+    var sl=document.getElementById("slot");
+    if(sl) sl.textContent=key.replace("-"," – ");
+
+    var sn=document.getElementById("slotnext");
+    if(sn) sn.textContent="本時段尚餘 "+(60-mi)+" 分，下一時段 "+p2((h+1)%24)+":00";
+
+    if(key!==lastKey){ lastKey=key; renderSquads(key); }
+
+    if(nowMin!==lastMin){
+      lastMin=nowMin;
+      renderTasks(now);
+      renderCal(now);
+      var ls=document.getElementById("lastsync");
+      if(ls) ls.textContent="畫面時間 "+p2(h)+":"+p2(mi);
+    }
+  }
+
+  /* =================== 向伺服器取得最新資料 ===================
+     取得成功 → 用即時資料取代上面的內建快照並重繪。
+     取不到（尚未部署、採集器還沒送過、服務休眠）→ 保持快照，畫面照常可看。
+     ============================================================ */
+
+  function setNotice(html,live){
+    var t=document.getElementById("noticetext");
+    var n=document.getElementById("notice");
+    if(t) t.innerHTML=html;
+    if(n){
+      n.style.background=live?"rgba(61,190,107,.09)":"";
+      n.style.borderBottomColor=live?"rgba(61,190,107,.28)":"";
+      n.style.color=live?"var(--green)":"";
+      var dot=n.querySelector(".notice-dot");
+      if(dot) dot.style.background=live?"var(--green)":"var(--amber)";
+    }
+  }
+
+  function fmtTime(iso){
+    try{
+      var d=new Date(iso);
+      return p2(d.getHours())+":"+p2(d.getMinutes());
+    }catch(e){ return "—"; }
+  }
+
+  function loadRemote(){
+    if(!window.fetch) return;
+    fetch("/api/duty",{cache:"no-store"})
+      .then(function(r){ return r.ok?r.json():null; })
+      .then(function(j){
+        if(!j||!j.ok||!j.data) return;
+        var d=j.data;
+
+        if(Array.isArray(d.units)&&d.units.length){
+          UNITS=d.units.map(function(u){
+            var o={
+              name:u.name,chief:u.chief,
+              day:+u.day||0,night:+u.night||0,
+              ids:u.ids||"",note:u.note||"",
+              byId:!!u.byId,cars:u.cars||[],
+              leave:u.leave||null
+            };
+            // slots 可為 {"08-09":{duty,cars,standby,rest}} 或列陣列
+            if(u.slots&&!Array.isArray(u.slots)) o.slots=u.slots;
+            else if(Array.isArray(u.slots)&&u.slots.length) o.slots=toMap(u.slots);
+            return o;
+          });
+        }
+        if(Array.isArray(d.tasks)) TASKS=d.tasks;
+
+        setNotice("<b>即時資料</b>　　勤務日期 "+esc(d.date)+
+                  "　最後採集 "+fmtTime(j.receivedAt)+
+                  "　　行事曆為 Google 行事曆資料。",true);
+
+        renderStrip();
+        renderLeave();
+        lastKey=null; lastMin=-1;   // 強制重繪
+        tick();
+      })
+      .catch(function(){ /* 取不到就保持快照，不打擾畫面 */ });
+  }
+
+  renderStrip();
+  renderLeave();
+  tick();
+  setInterval(tick,1000);
+
+  loadRemote();
+  setInterval(loadRemote,5*60*1000);   // 每 5 分鐘向伺服器要一次
+})();
+</script>
