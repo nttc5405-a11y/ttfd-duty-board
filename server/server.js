@@ -7,9 +7,18 @@
    2. 給資料：電視牆、手機、任何人開 /api/duty 就能讀到最新資料，
       不需要登入勤務系統。
 
+   3. 定時讀 Google 行事曆：伺服器每隔一段時間自己去讀 iCal 訂閱網址
+      （不需要登入、不需要人操作），整理好跟其餘資料一起供應出去。
+
    環境變數（在 Render 的 Environment 設定）：
-     PUSH_TOKEN   必填。採集器送資料時要帶的通行碼，自己取一串亂碼。
-     ALLOW_ORIGIN 選填。允許送資料進來的來源，預設 https://ttfd2.firemis.tw
+     PUSH_TOKEN       必填。採集器送資料時要帶的通行碼，自己取一串亂碼。
+     ALLOW_ORIGIN     選填。允許送資料進來的來源，預設 https://ttfd2.firemis.tw
+     CAL_ICS_URL_DAJI     選填。「大隊」來源日曆的 iCal 訂閱網址
+     CAL_ICS_URL_YIXIAO   選填。「義消」來源日曆的 iCal 訂閱網址
+     CAL_ICS_URL_JUBENBU  選填。「局本部」來源日曆的 iCal 訂閱網址
+     以上三個都是選填、且互相獨立——沒設定的來源就不會出現在看板上，
+     之後要加新來源，只要多設一個環境變數即可，不需要改程式碼。
+     若三個都沒設定，行事曆會沿用看板內建的靜態快照（不會自動更新）。
    ============================================================ */
 
 "use strict";
@@ -17,6 +26,16 @@
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
+
+// 行事曆模組獨立包一層防護：萬一它有問題（例如相依套件安裝失敗、
+// ICS 解析邏輯有 bug），不該連累勤務表、即時出勤這些完全不相關的
+// 功能。載入失敗就把它當「沒有這個功能」處理，其餘照常運作。
+let fetchAllCalendars = null;
+try {
+  fetchAllCalendars = require("./calendar").fetchAllCalendars;
+} catch (e) {
+  console.log("[boot] 行事曆模組載入失敗，行事曆功能停用，其餘照常運作：" + e.message);
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -35,6 +54,38 @@ try {
   }
 } catch (e) {
   console.log("[boot] 快取讀取失敗，忽略：" + e.message);
+}
+
+/* ---------- 行事曆：自己排程去讀，不需要人操作 ---------- */
+const CAL_SOURCES = [
+  { name: "大隊", tag: "t1", url: process.env.CAL_ICS_URL_DAJI || "" },
+  { name: "義消", tag: "t3", url: process.env.CAL_ICS_URL_YIXIAO || "" },
+  { name: "局本部", tag: "t2", url: process.env.CAL_ICS_URL_JUBENBU || "" }
+].filter((s) => s.url);
+
+const CAL_POLL_MS = 12 * 60 * 60 * 1000; // 12 小時
+let calCache = null; // { days, fetchedAt }
+
+function refreshCalendar() {
+  if (!CAL_SOURCES.length || !fetchAllCalendars) return;
+  fetchAllCalendars(CAL_SOURCES)
+    .then((result) => {
+      calCache = { days: result.days, fetchedAt: result.fetchedAt };
+      var msg = "[cal] 已更新，共 " + result.days.length + " 天有行程";
+      if (result.errors.length) msg += "；部分來源失敗：" + result.errors.join("；");
+      console.log(msg);
+    })
+    .catch((e) => {
+      console.log("[cal] 更新失敗，保留舊資料（若有）：" + e.message);
+    });
+}
+
+if (CAL_SOURCES.length) {
+  console.log("[boot] 行事曆來源：" + CAL_SOURCES.map((s) => s.name).join("、"));
+  refreshCalendar();
+  setInterval(refreshCalendar, CAL_POLL_MS);
+} else {
+  console.log("[boot] 尚未設定任何 CAL_ICS_URL_*，行事曆將沿用看板內建的靜態快照");
 }
 
 app.use(express.json({ limit: "2mb" }));
@@ -125,7 +176,14 @@ app.get("/api/duty", (req, res) => {
       hint: "請在隊部電腦登入勤務系統後執行採集器"
     });
   }
-  res.json({ ok: true, receivedAt: latest.receivedAt, data: latest.data });
+  // 行事曆是伺服器自己排程抓的，跟採集器推送的資料分開維護，
+  // 這裡合併成同一份回應，看板端只要讀一個地方就好。
+  var data = Object.assign({}, latest.data);
+  if (calCache) {
+    data.cal = calCache.days;
+    data.calFetchedAt = calCache.fetchedAt;
+  }
+  res.json({ ok: true, receivedAt: latest.receivedAt, data: data });
 });
 
 /* ---------- 健康檢查 ---------- */
@@ -134,7 +192,10 @@ app.get("/api/health", (req, res) => {
     ok: true,
     hasData: !!latest,
     receivedAt: latest ? latest.receivedAt : null,
-    tokenConfigured: !!PUSH_TOKEN
+    tokenConfigured: !!PUSH_TOKEN,
+    calSources: CAL_SOURCES.map((s) => s.name),
+    calFetchedAt: calCache ? calCache.fetchedAt : null,
+    calDays: calCache ? calCache.days.length : 0
   });
 });
 

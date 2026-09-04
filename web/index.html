@@ -1166,27 +1166,33 @@ try{
 
   /* ---- 行事曆來源篩選 ----
      從 CAL 資料裡掃出所有出現過的「行事曆來源」（大隊／局本部／義消），
-     每個來源一顆篩選鈕，開關狀態記在瀏覽器裡，重新整理後還記得。 */
+     每個來源一顆篩選鈕，開關狀態記在瀏覽器裡，重新整理後還記得。
+     寫成函式而不是只跑一次的原因：CAL 之後可能被伺服器送來的即時
+     行事曆資料整個換掉（見 loadRemote()），來源清單需要跟著重算。 */
   var CAL_NAMES=[], CAL_NAME_TAG={};
-  (function(){
+  var CAL_FILTER_KEY="board-cal-filter";
+  var calActive=new Set();
+
+  function rebuildCalIndex(){
+    CAL_NAMES=[]; CAL_NAME_TAG={};
     var seen={};
     CAL.forEach(function(day){
       day.items.forEach(function(ev){
         if(!seen[ev.cal]){ seen[ev.cal]=true; CAL_NAMES.push(ev.cal); CAL_NAME_TAG[ev.cal]=ev.tag||"t1"; }
       });
     });
-  })();
 
-  var CAL_FILTER_KEY="board-cal-filter";
-  var calActive=(function(){
     var saved=null;
     try{ saved=JSON.parse(localStorage.getItem(CAL_FILTER_KEY)||"null"); }catch(e){}
     if(Array.isArray(saved)){
       var s=new Set(saved.filter(function(n){ return CAL_NAMES.indexOf(n)>=0; }));
-      if(s.size) return s;
+      calActive=s.size?s:new Set(CAL_NAMES);
+    }else{
+      calActive=new Set(CAL_NAMES);   // 預設全選
     }
-    return new Set(CAL_NAMES);   // 預設全選
-  })();
+  }
+
+  rebuildCalIndex();
 
   function saveCalFilter(){
     try{ localStorage.setItem(CAL_FILTER_KEY,JSON.stringify(Array.from(calActive))); }catch(e){}
@@ -1412,6 +1418,14 @@ try{
         }
         if(Array.isArray(d.tasks)) TASKS=d.tasks;
         if(Array.isArray(d.outStatus)) OUT_STATUS=d.outStatus;
+
+        // 伺服器排程抓到的即時行事曆，整批換掉內建的靜態快照；
+        // 來源篩選鈕（大隊／局本部／義消）要跟著重新計算一次。
+        if(Array.isArray(d.cal)&&d.cal.length){
+          CAL=d.cal;
+          rebuildCalIndex();
+          renderCalFilterChips();
+        }
 
         remoteReceivedAt=new Date(j.receivedAt);
         remoteDutyDate=d.date;

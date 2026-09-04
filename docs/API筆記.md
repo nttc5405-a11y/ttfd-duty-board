@@ -249,3 +249,39 @@ GET，但內容包含 `logs[].ip`、`logs[].userAgent`（瀏覽器資訊），�
 `shift-status/list` 這支，不重查整份勤務表，對系統負擔較小。
 對應伺服器端支援「快速推送」（body 只有 `outStatus`，見
 `server/server.js` 的 `/api/push`），合併進現有資料而不是整包換掉。
+
+---
+
+## 七、Google 行事曆 iCal 訂閱與 htmlLink 重建公式（2026-09-04）
+
+跟 ttfd2/ttfd 都無關，是另一個完全獨立的資料來源，記在這裡方便查找。
+
+**訂閱網址格式**：
+```
+https://calendar.google.com/calendar/ical/<日曆ID URL編碼>/public/basic.ics   （日曆已設公開時）
+https://calendar.google.com/calendar/ical/<日曆ID URL編碼>/private-<亂碼>/basic.ics  （私人網址，不論日曆是否公開都能用）
+```
+不需要登入、不需要 API 金鑰，網址本身就是通行證。回傳格式是標準
+iCalendar（`.ics`），用 `node-ical` 套件解析（`ical.async.fromURL()`）。
+
+**htmlLink 重建公式**（已用真實事件驗證正確）：
+```
+eid = base64("<事件ID> <日曆ID>")，不含結尾 =
+連結 = https://www.google.com/calendar/event?eid=<eid>
+```
+事件 ID 取自 ICS 的 `UID` 欄位，需去掉結尾的 `@google.com`。
+日曆 ID 從訂閱網址本身的路徑段解出（URL 解碼）。
+見 `server/calendar.js` 的 `buildLink()`。
+
+**重複事件（RRULE）是真實會用到的情況，不是邊角案例**：實測「成功
+大隊暨所屬分隊活動」日曆有 16 組重複規則、41 筆例外異動（例如某次
+週報被取消或改期，會以帶 `RECURRENCE-ID` 的獨立 VEVENT 覆蓋掉該次
+展開結果）。展開重複規則要用 `ev.rrule.between(start,end,true)`，
+並且要比對是否有相符的 `RECURRENCE-ID` 例外場次，用例外的內容取代
+（或整場跳過，若例外的狀態是 CANCELLED）。
+
+**風險提醒**：這台開發用電腦沒有安裝 Node，`server/calendar.js` 與
+其中的 RRULE 展開邏輯**只能靠靜態語法檢查與人工檢視，沒有真的執行
+測試過**。部署後務必看 Render 的部署日誌，並用 `/api/health` 的
+`calDays`／`calFetchedAt` 欄位確認有沒有成功抓到資料，發現異常回報
+給 Claude 附上實際錯誤訊息。
