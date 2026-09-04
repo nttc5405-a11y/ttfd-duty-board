@@ -7,7 +7,9 @@
    2. 向系統要今天成功大隊 6 個單位的勤務表
    3. 把「以人為單位」的排班轉成「以時段為單位」的看板格式
    4. 送到你自己的 Render 伺服器，供電視牆與手機讀取
-   5. 之後每 4 小時自動重跑一次（勤務表修正不頻繁，不需要更密集）
+   5. 完整資料每 4 小時自動重跑一次（勤務表修正不頻繁，不需要更密集），
+      即時出勤狀態另外每 30 分鐘查一次（只打 shift-status/list 這支，
+      不重查整份勤務表，對系統負擔比較小，資料也比較即時）
 
    第一次執行會問你 Render 網址與通行碼，記在這台電腦的瀏覽器裡，之後不再問。
    ============================================================ */
@@ -17,9 +19,14 @@
   var CFG_URL = "__board_endpoint";
   var CFG_TOK = "__board_token";
 
-  // 自動更新間隔。勤務表修正不頻繁，不需要更密集；拉長間隔也降低
-  // 系統登入授權過期、每次都要重新攔截的機率。
+  // 完整資料的自動更新間隔。勤務表修正不頻繁，不需要更密集；拉長
+  // 間隔也降低系統登入授權過期、每次都要重新攔截的機率。
   var PUSH_INTERVAL_MS = 4 * 60 * 60 * 1000;
+
+  // 即時出勤狀態的更新間隔，比完整資料短，因為這塊是分秒在變的
+  // 即時狀態，但也不需要短於看板本身向伺服器要資料的頻率（5 分鐘），
+  // 短於那個看板也不會更快顯示，只是白白多打請求。
+  var OUT_STATUS_INTERVAL_MS = 30 * 60 * 1000;
 
   // 成功大隊及所屬 5 個分隊的單位 ID（取自系統前端自身的查詢條件）
   var DEPTS = [
@@ -60,7 +67,9 @@
       "padding:5px 12px;font-size:12px;cursor:pointer";
     stop.onclick = function () {
       if (window.__collectTimer) clearTimeout(window.__collectTimer);
+      if (window.__collectOutTimer) clearInterval(window.__collectOutTimer);
       window.__collectTimer = null;
+      window.__collectOutTimer = null;
       box.parentNode.removeChild(box);
     };
     head.appendChild(stop);
@@ -326,6 +335,10 @@
     return out;
   }
 
+  // 上一次完整採集算出的「單位 ID → 單位名稱」對照，讓即時出勤的
+  // 快速查詢不用重新查一次勤務表列表就能標出單位名稱。
+  var lastDeptToName = null;
+
   function collect(auth, cfg, quiet) {
     if (!quiet) say("向系統查詢勤務表列表…");
 
@@ -365,6 +378,7 @@
               });
           });
         }, Promise.resolve()).then(function () {
+          lastDeptToName = deptToName;
           return { date: today, collectedAt: new Date().toISOString(), units: units, tasks: tasks, outStatus: [] };
         });
       })
@@ -394,6 +408,30 @@
           return r.json().then(function (j) {
             if (!r.ok || !j.ok) throw new Error(j.error || ("伺服器回應 " + r.status));
             return payload;
+          });
+        });
+      });
+  }
+
+  // 只查即時出勤狀態、不重查整份勤務表的輕量版本，給 30 分鐘排程用。
+  // 用「快速推送」（body 只有 outStatus）送到伺服器，伺服器那邊會
+  // 合併進現有資料，不會把勤務表洗掉。
+  function collectOutStatusOnly(auth, cfg, quiet) {
+    if (!lastDeptToName) {
+      if (!quiet) say("尚未有完整資料可對照單位名稱，這次即時出勤更新先跳過。", "#F2A93B");
+      return Promise.resolve(null);
+    }
+    return api("POST", "/api/v2/shift-status/list", { depts: DEPTS }, auth)
+      .then(function (statusList) {
+        var outStatus = buildOutStatus(statusList, lastDeptToName);
+        return fetch(cfg.url.replace(/\/$/, "") + "/api/push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Push-Token": cfg.tok },
+          body: JSON.stringify({ outStatus: outStatus })
+        }).then(function (r) {
+          return r.json().then(function (j) {
+            if (!r.ok || !j.ok) throw new Error(j.error || ("伺服器回應 " + r.status));
+            return outStatus;
           });
         });
       });
@@ -466,10 +504,33 @@
     }, wait);
   }
 
+  // 即時出勤的獨立排程，比完整資料短，只打 shift-status/list 這支。
+  function runOutStatus(quiet) {
+    getAuth()
+      .then(function (auth) {
+        return collectOutStatusOnly(auth, cfg, quiet);
+      })
+      .then(function (outStatus) {
+        // 尚無單位對照，collectOutStatusOnly 已經有訊息了
+        if (!outStatus) return;
+        var t = new Date();
+        say("即時出勤更新　" + p2(t.getHours()) + ":" + p2(t.getMinutes()) +
+            "　" + outStatus.length + " 人在外", "#3DBE6B");
+      })
+      .catch(function (e) {
+        say("即時出勤更新失敗：" + e.message, "#F2A93B");
+        if (/401|403/.test(e.message)) window.__collectorAuth = null;
+      });
+  }
+
   run(false);
 
   if (window.__collectTimer) clearTimeout(window.__collectTimer);
   scheduleNext();
-  say("已開啟自動更新：每 4 小時一次，並在每天 07:00 額外多跑一次。關閉本視窗即停止。", "#93A6B6");
+
+  if (window.__collectOutTimer) clearInterval(window.__collectOutTimer);
+  window.__collectOutTimer = setInterval(function () { runOutStatus(true); }, OUT_STATUS_INTERVAL_MS);
+
+  say("已開啟自動更新：完整資料每 4 小時（並在每天 07:00 額外多跑一次），即時出勤每 30 分鐘。關閉本視窗即停止。", "#93A6B6");
   say("提醒：本分頁須保持開啟才會自動更新；系統若因閒置逾時登出，下次更新會自動嘗試重新取得授權。", "#93A6B6");
 })();

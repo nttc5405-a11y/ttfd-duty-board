@@ -243,3 +243,9 @@ GET，但內容包含 `logs[].ip`、`logs[].userAgent`（瀏覽器資訊），�
 「即時人力」需求，故不採用。
 
 見 `collector/collector.js` 的 `buildOutStatus()`。
+
+**更新頻率**：即時出勤與完整勤務表分開排程（完整 4 小時＋每天
+07:00 額外一次，即時出勤 30 分鐘一次），即時出勤只打
+`shift-status/list` 這支，不重查整份勤務表，對系統負擔較小。
+對應伺服器端支援「快速推送」（body 只有 `outStatus`，見
+`server/server.js` 的 `/api/push`），合併進現有資料而不是整包換掉。

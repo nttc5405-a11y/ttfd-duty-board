@@ -59,7 +59,21 @@ app.use((req, res, next) => {
   next();
 });
 
-/* ---------- 收資料 ---------- */
+/* ---------- 收資料 ----------
+   兩種推送，靠 body 的形狀分辨：
+   1. 完整推送（勤務表、每 4 小時＋每天 07:00）：帶 date + units，
+      整包資料整個換掉，行為跟原本一樣。
+   2. 快速推送（即時出勤、每 30 分鐘）：只帶 outStatus，不動其餘
+      欄位——用「合併」而不是「整個換掉」，避免把勤務表資料洗掉。
+      這種推送前提是伺服器已經有過一次完整推送，不然沒東西可合併。 */
+function writeCache() {
+  try {
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(latest), "utf8");
+  } catch (e) {
+    console.log("[push] 快取寫入失敗，不影響服務：" + e.message);
+  }
+}
+
 app.post("/api/push", (req, res) => {
   if (!PUSH_TOKEN) {
     return res.status(500).json({ ok: false, error: "伺服器尚未設定 PUSH_TOKEN" });
@@ -68,24 +82,38 @@ app.post("/api/push", (req, res) => {
     return res.status(401).json({ ok: false, error: "通行碼不正確" });
   }
 
-  const data = req.body;
-  if (!data || !data.date || !Array.isArray(data.units)) {
-    return res.status(400).json({ ok: false, error: "資料格式不符：需要 date 與 units" });
+  const body = req.body;
+  if (!body) {
+    return res.status(400).json({ ok: false, error: "缺少資料內容" });
   }
 
-  latest = {
-    receivedAt: new Date().toISOString(),
-    data: data
-  };
-
-  try {
-    fs.writeFileSync(CACHE_FILE, JSON.stringify(latest), "utf8");
-  } catch (e) {
-    console.log("[push] 快取寫入失敗，不影響服務：" + e.message);
+  // 完整推送
+  if (Array.isArray(body.units)) {
+    if (!body.date) {
+      return res.status(400).json({ ok: false, error: "資料格式不符：完整推送需要 date" });
+    }
+    latest = {
+      receivedAt: new Date().toISOString(),
+      data: body
+    };
+    writeCache();
+    console.log("[push] 完整推送 " + body.date + "，單位 " + body.units.length + " 個");
+    return res.json({ ok: true, receivedAt: latest.receivedAt, units: body.units.length });
   }
 
-  console.log("[push] 收到 " + data.date + "，單位 " + data.units.length + " 個");
-  res.json({ ok: true, receivedAt: latest.receivedAt, units: data.units.length });
+  // 快速推送（只有即時出勤）
+  if (Array.isArray(body.outStatus)) {
+    if (!latest) {
+      return res.status(409).json({ ok: false, error: "尚未有完整資料，請先執行一次完整採集" });
+    }
+    latest.data.outStatus = body.outStatus;
+    latest.data.outStatusAt = new Date().toISOString();
+    writeCache();
+    console.log("[push] 快速推送即時出勤 " + body.outStatus.length + " 人");
+    return res.json({ ok: true, outStatusAt: latest.data.outStatusAt, count: body.outStatus.length });
+  }
+
+  return res.status(400).json({ ok: false, error: "資料格式不符：需要 units（完整）或 outStatus（快速）" });
 });
 
 /* ---------- 給資料 ---------- */
