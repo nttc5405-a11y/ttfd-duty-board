@@ -59,7 +59,7 @@
       "margin-left:auto;background:#7E2019;color:#fff;border:0;border-radius:3px;" +
       "padding:5px 12px;font-size:12px;cursor:pointer";
     stop.onclick = function () {
-      if (window.__collectTimer) clearInterval(window.__collectTimer);
+      if (window.__collectTimer) clearTimeout(window.__collectTimer);
       window.__collectTimer = null;
       box.parentNode.removeChild(box);
     };
@@ -402,10 +402,35 @@
       });
   }
 
+  /* ---------- 排程 ----------
+     不是單純每 4 小時跑一次：如果距離下次固定排程之間會跨過當天的
+     07:00，就提前在 07:00 那個時間點多跑一次，讓新的一天一開始就有
+     新鮮資料，而不是要等到 4 小時的排程剛好轉到才更新。
+     這只在「這個分頁從半夜到隔天都沒被關掉」時才有意義——電腦關機、
+     分頁被關掉都會讓這個排程跟著消失，隔天早上還是需要有人登入後
+     點一次書籤。 */
+  var DAILY_HOUR = 7;
+
+  function msUntilNextRun(now) {
+    var next7 = new Date(now);
+    next7.setHours(DAILY_HOUR, 0, 0, 0);
+    if (next7 <= now) next7.setDate(next7.getDate() + 1);
+    var msTo7 = next7.getTime() - now.getTime();
+    return Math.min(PUSH_INTERVAL_MS, msTo7);
+  }
+
+  function scheduleNext() {
+    var wait = msUntilNextRun(new Date());
+    window.__collectTimer = setTimeout(function () {
+      run(true);
+      scheduleNext();
+    }, wait);
+  }
+
   run(false);
 
-  if (window.__collectTimer) clearInterval(window.__collectTimer);
-  window.__collectTimer = setInterval(function () { run(true); }, PUSH_INTERVAL_MS);
-  say("已開啟自動更新，每 4 小時一次。關閉本視窗即停止。", "#93A6B6");
+  if (window.__collectTimer) clearTimeout(window.__collectTimer);
+  scheduleNext();
+  say("已開啟自動更新：每 4 小時一次，並在每天 07:00 額外多跑一次。關閉本視窗即停止。", "#93A6B6");
   say("提醒：本分頁須保持開啟才會自動更新；系統若因閒置逾時登出，下次更新會自動嘗試重新取得授權。", "#93A6B6");
 })();

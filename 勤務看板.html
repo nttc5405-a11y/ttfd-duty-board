@@ -20,12 +20,45 @@
   --amber:#F2A93B;
   --blue:#4A9FD8;
   --violet:#9B8CD8;
+  --topbar-1:#131C25;
+  --topbar-2:#0E151C;
+  --red-bright:#FF8478;
+  --amber-bright:#FFD08A;
+  --green-tint:rgba(61,190,107,.09);
+  --green-tint-border:rgba(61,190,107,.28);
 
   --f-cond:"Barlow Condensed","Noto Sans TC","Microsoft JhengHei",sans-serif;
   --f-body:"Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;
   --f-mono:"IBM Plex Mono",ui-monospace,monospace;
 
   --pad:clamp(12px,1.3vw,22px);
+}
+
+/* 日間模式：預設是深色（電視牆用），這裡是切換鈕開啟後的覆寫版本。
+   語意色（紅/綠/琥珀/藍/紫）維持同一組色相，只是調深飽和度以維持
+   在白底上的可讀對比，不是單純反白。 */
+:root[data-theme="light"]{
+  --ground:#EEF1F4;
+  --surface:#FFFFFF;
+  --surface-2:#F5F7F9;
+  --surface-3:#E9EDF1;
+  --line:#D5DBE1;
+  --line-soft:#E3E7EC;
+  --ink:#1B242C;
+  --ink-2:#55636F;
+  --ink-3:#8894A0;
+  --red:#C62B1E;
+  --red-dim:#F0B8B0;
+  --green:#1E8E52;
+  --amber:#B36B00;
+  --blue:#1B6FA8;
+  --violet:#6A55B8;
+  --topbar-1:#FFFFFF;
+  --topbar-2:#F2F4F6;
+  --red-bright:#A61D12;
+  --amber-bright:#7A4A00;
+  --green-tint:rgba(30,142,82,.09);
+  --green-tint-border:rgba(30,142,82,.28);
 }
 
 *{box-sizing:border-box}
@@ -37,6 +70,7 @@ body{
   font-size:clamp(13px,.95vw,16px);
   line-height:1.45;
   -webkit-font-smoothing:antialiased;
+  transition:background .2s ease,color .2s ease;
 }
 
 /* ================= 頂部 ================= */
@@ -46,7 +80,7 @@ body{
   align-items:center;
   gap:var(--pad);
   padding:calc(var(--pad)*.8) var(--pad);
-  background:linear-gradient(180deg,#131C25,#0E151C);
+  background:linear-gradient(180deg,var(--topbar-1),var(--topbar-2));
   border-bottom:2px solid var(--red);
 }
 .unit{display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -97,7 +131,7 @@ body{
   color:var(--amber);
 }
 .notice span:last-child{flex:1;min-width:0}
-.notice b{color:#FFD08A;font-weight:700}
+.notice b{color:var(--amber-bright);font-weight:700}
 .notice-dot{
   width:7px;height:7px;border-radius:50%;
   background:var(--amber);flex:none;margin-top:.45em;
@@ -294,7 +328,7 @@ body{
   margin-inline:-7px;padding-inline:7px;
   border-left:2px solid var(--red);
 }
-.task.live .task-time{color:#FF8478}
+.task.live .task-time{color:var(--red-bright)}
 .task.past{opacity:.5}
 .task.past:hover{opacity:.85}
 .task-toggle{
@@ -355,6 +389,7 @@ body{
 }
 .ev-tag.t1{background:rgba(74,159,216,.13);color:var(--blue)}
 .ev-tag.t2{background:rgba(155,140,216,.13);color:var(--violet)}
+.ev-tag.t3{background:rgba(61,190,107,.13);color:var(--green)}
 .ev-loc{font-size:clamp(9.5px,.72vw,11.5px);color:var(--ink-3);margin-top:2px}
 .ev.now{
   background:rgba(228,57,43,.07);
@@ -409,7 +444,39 @@ body{
   .strip-cell{min-width:calc(50% - 1px)}
   .row{grid-template-columns:66px 1fr}
 }
+.controls{
+  position:fixed;top:10px;right:10px;z-index:50;
+  display:flex;gap:6px;
+}
+.ctrl-btn{
+  width:36px;height:36px;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--surface-2);
+  border:1px solid var(--line);
+  border-radius:6px;
+  color:var(--ink-2);
+  font-size:17px;
+  cursor:pointer;
+  transition:background .15s ease,color .15s ease,border-color .15s ease;
+}
+.ctrl-btn:hover{background:var(--surface-3);color:var(--ink)}
+.ctrl-btn:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.ctrl-btn.on{color:var(--green);border-color:var(--green)}
 </style>
+
+<script>
+/* 越早套用主題越好，避免頁面先閃一下深色才切成淺色 */
+try{
+  if(localStorage.getItem("board-theme")==="light"){
+    document.documentElement.setAttribute("data-theme","light");
+  }
+}catch(e){}
+</script>
+
+<div class="controls">
+  <button class="ctrl-btn" id="themeToggle" type="button" title="切換日間／夜間模式" aria-label="切換日間／夜間模式">🌙</button>
+  <button class="ctrl-btn" id="voiceToggle" type="button" title="語音提醒（尚未開啟）" aria-label="語音提醒開關">🔇</button>
+</div>
 
 <div class="topbar">
   <div class="unit">
@@ -586,29 +653,59 @@ body{
   ];
 
   // Google 行事曆真實資料（2026-09-03 取得）
+  // 靜態快照（2026-09-04 由 Google 行事曆取得，涵蓋至 9/18）。
+  // 這不是即時連線——見下方 renderCal() 前的說明。
   var CAL=[
-    {d:"2026-09-03",items:[
-      {allday:true,title:"廳舍檢修申報",cal:"大隊",tag:"t1"},
-      {t:"08:30–12:00",title:"醫療訪視（分隊）",cal:"大隊",tag:"t1"},
-      {t:"09:00–10:00",title:"週報",cal:"大隊",tag:"t1"},
-      {t:"13:30–15:00",title:"國家防災日場地佈設評選會議",cal:"局本部",tag:"t2",loc:"3 樓會議室"},
-      {t:"15:00–16:00",title:"專案安全會議",cal:"局本部",tag:"t2",loc:"四樓應變中心"}
-    ]},
     {d:"2026-09-04",items:[
       {t:"09:30–12:00",title:"擴大消防業務會報",cal:"局本部",tag:"t2",loc:"中央災害應變中心"}
     ]},
     {d:"2026-09-05",items:[
       {allday:true,title:"職業安全健康諮詢服務",cal:"大隊",tag:"t1"}
     ]},
+    {d:"2026-09-06",items:[
+      {t:"09:00–10:00",title:"縣長之父公祭（家奠8時／公奠9時）",cal:"局本部",tag:"t2",loc:"追遠廳"}
+    ]},
     {d:"2026-09-07",items:[
       {t:"10:00–12:00",title:"國家防災日大規模震災救災動員演練",cal:"大隊",tag:"t1",loc:"線上參與"}
     ]},
     {d:"2026-09-08",items:[
       {t:"09:00–12:00",title:"應變管理資訊系統（EMIC2.0）演練",cal:"局本部",tag:"t2"},
-      {t:"14:30–15:30",title:"防災教育館複驗",cal:"局本部",tag:"t2"}
+      {t:"14:30–15:30",title:"防災教育警覺館複驗",cal:"局本部",tag:"t2"}
     ]},
     {d:"2026-09-09",items:[
+      {t:"10:00–11:30",title:"森林防火座談會",cal:"大隊",tag:"t1",loc:"忠智里活動中心"},
       {t:"14:30–15:30",title:"人事甄審會議",cal:"局本部",tag:"t2",loc:"3 樓會議室"}
+    ]},
+    {d:"2026-09-10",items:[
+      {t:"08:00–09:00",title:"檢查各單位每週發電機發動照片及影片",cal:"大隊",tag:"t1"},
+      {t:"09:00–10:00",title:"週報（暫停一次）",cal:"大隊",tag:"t1"},
+      {t:"14:30–16:30",title:"主管會報暨縣務會議",cal:"局本部",tag:"t2",loc:"縣府 A 會議室"},
+      {t:"18:00–20:00",title:"（暫定）警消與議員聯誼會餐敘",cal:"局本部",tag:"t2",loc:"丸八餐廳"}
+    ]},
+    {d:"2026-09-11",items:[
+      {t:"10:00–11:00",title:"電視牆及救災救護指揮派遣台建置案驗收",cal:"局本部",tag:"t2"},
+      {t:"16:30–17:30",title:"全國義勇消防總隊聯繫會報",cal:"義消",tag:"t3",loc:"台北一郎宴會館"}
+    ]},
+    {d:"2026-09-14",items:[
+      {t:"18:00–20:00",title:"池上救災、防宣義消中秋活動",cal:"義消",tag:"t3",loc:"豐華餐館"}
+    ]},
+    {d:"2026-09-15",items:[
+      {allday:true,title:"林保署會議",cal:"大隊",tag:"t1"}
+    ]},
+    {d:"2026-09-16",items:[
+      {allday:true,title:"強韌台灣 921 大規模災害防救演練（暫訂 9/16–9/18）",cal:"局本部",tag:"t2",loc:"關山縱谷線"},
+      {allday:true,title:"921 國家防災日，預計 17 個外縣市隊伍",cal:"大隊",tag:"t1"}
+    ]},
+    {d:"2026-09-17",items:[
+      {t:"09:00–10:00",title:"週報",cal:"局本部",tag:"t2"},
+      {t:"09:00–10:00",title:"週報",cal:"大隊",tag:"t1"},
+      {allday:true,title:"（時間待定）協助中科院至發射場地灑水",cal:"大隊",tag:"t1"}
+    ]},
+    {d:"2026-09-18",items:[
+      {t:"05:30–06:30",title:"中科院飛彈發射時間",cal:"大隊",tag:"t1"},
+      {t:"08:30–09:30",title:"大隊勤教",cal:"大隊",tag:"t1",loc:"成功大隊 2 樓會議室"},
+      {t:"10:30–11:30",title:"火搶演練",cal:"大隊",tag:"t1"},
+      {t:"18:00–20:00",title:"中秋科室聯誼餐會",cal:"局本部",tag:"t2",loc:"阿哩岸"}
     ]}
   ];
 
@@ -801,14 +898,26 @@ body{
     if(meta) meta.textContent=live>0?("進行中 "+live+" 項"):"目前無進行中項目";
   }
 
+  /* 行事曆目前是靜態快照（撰寫看板時手動抓一次 Google 行事曆存進來的），
+     不是即時連線——系統裡沒有會自動去問 Google 要新資料的東西，所以快照
+     用完（超過 CAL 陣列最後一天）畫面就不會再長出新的一天。真正要做到
+     自動更新，需要在伺服器那端另外接 Google 行事曆的正式介面，這是比較
+     大的工程，目前尚未實作。這裡先做到位的是：已經過去的日期會自動從
+     畫面移除，不會像之前那樣一直卡在舊日期。 */
   function renderCal(now){
     var host=document.getElementById("calbody");
     if(!host) return;
     var todayKey=now.getFullYear()+"-"+p2(now.getMonth()+1)+"-"+p2(now.getDate());
     var nowMin=now.getHours()*60+now.getMinutes();
     var html="";
+    var upcoming=CAL.filter(function(day){ return day.d>=todayKey; });
 
-    CAL.forEach(function(day){
+    if(!upcoming.length){
+      host.innerHTML='<div class="cal-empty">行事曆快照已用完，需要重新抓取最新行程。</div>';
+      return;
+    }
+
+    upcoming.forEach(function(day){
       var pt=day.d.split("-");
       var dt=new Date(+pt[0],+pt[1]-1,+pt[2]);
       var isToday=(day.d===todayKey);
@@ -871,6 +980,7 @@ body{
       lastMin=nowMin;
       renderTasks(now);
       renderCal(now);
+      checkAnnouncements(now);
       var ls=document.getElementById("lastsync");
       if(ls) ls.textContent="畫面時間 "+p2(h)+":"+p2(mi);
     }
@@ -886,8 +996,8 @@ body{
     var n=document.getElementById("notice");
     if(t) t.innerHTML=html;
     if(n){
-      n.style.background=live?"rgba(61,190,107,.09)":"";
-      n.style.borderBottomColor=live?"rgba(61,190,107,.28)":"";
+      n.style.background=live?"var(--green-tint)":"";
+      n.style.borderBottomColor=live?"var(--green-tint-border)":"";
       n.style.color=live?"var(--green)":"";
       var dot=n.querySelector(".notice-dot");
       if(dot) dot.style.background=live?"var(--green)":"var(--amber)";
@@ -958,6 +1068,118 @@ body{
       })
       .catch(function(){ /* 取不到就保持快照，不打擾畫面 */ });
   }
+
+  /* =================== 日間／夜間模式 =================== */
+  (function(){
+    var btn=document.getElementById("themeToggle");
+    if(!btn) return;
+    function apply(light){
+      document.documentElement.setAttribute("data-theme",light?"light":"dark");
+      btn.textContent=light?"☀️":"🌙";
+      btn.classList.toggle("on",light);
+      btn.title=light?"切換成夜間模式":"切換成日間模式";
+    }
+    var saved=null;
+    try{ saved=localStorage.getItem("board-theme"); }catch(e){}
+    apply(saved==="light");
+    btn.onclick=function(){
+      var next=document.documentElement.getAttribute("data-theme")!=="light";
+      apply(next);
+      try{ localStorage.setItem("board-theme",next?"light":"dark"); }catch(e){}
+    };
+  })();
+
+  /* =================== 語音提醒 ===================
+     勤務時段前 30 分鐘，語音唸出即將開始的行事曆／勤務項目。
+     用瀏覽器內建的語音合成（不必連外部服務），預設關閉——瀏覽器規定
+     要先有一次使用者操作（按播放鈕）才准許自動發聲，所以無法一開頁面
+     就自己講話，這是瀏覽器的限制，不是看板的限制。
+     ================================================= */
+  var voiceEnabled=false;
+  var announcedKeys={}, announcedDate=null;
+
+  function speak(text){
+    if(!window.speechSynthesis) return;
+    try{
+      var u=new SpeechSynthesisUtterance(text);
+      u.lang="zh-TW";
+      u.rate=1;
+      var voices=window.speechSynthesis.getVoices();
+      var zh=voices.find(function(v){ return /^zh/i.test(v.lang); });
+      if(zh) u.voice=zh;
+      window.speechSynthesis.speak(u);
+    }catch(e){}
+  }
+
+  function collectAnnouncements(now){
+    var todayKey=now.getFullYear()+"-"+p2(now.getMonth()+1)+"-"+p2(now.getDate());
+    var list=[];
+
+    CAL.forEach(function(day){
+      if(day.d!==todayKey) return;
+      day.items.forEach(function(ev){
+        if(ev.allday||!ev.t) return;
+        var m=ev.t.match(/^(\d{2}):(\d{2})/);
+        if(!m) return;
+        var startMin=(+m[1])*60+(+m[2]);
+        list.push({
+          key:"cal|"+day.d+"|"+ev.t+"|"+ev.title,
+          startMin:startMin,
+          text:"提醒，"+(+m[1])+"點"+(+m[2]?(+m[2]+"分"):"")+"，行事曆「"+ev.title+"」即將開始"
+        });
+      });
+    });
+
+    TASKS.forEach(function(t){
+      var r=parseRange(t.time);
+      if(!r) return;
+      var startMin=r[0]*60;
+      list.push({
+        key:"task|"+t.unit+"|"+t.time+"|"+t.name,
+        startMin:startMin,
+        text:"提醒，"+r[0]+"點，"+t.unit+"勤務「"+t.name+"」即將開始"
+      });
+    });
+
+    return list;
+  }
+
+  function checkAnnouncements(now){
+    if(!voiceEnabled) return;
+    var todayKey=now.getFullYear()+"-"+p2(now.getMonth()+1)+"-"+p2(now.getDate());
+    if(announcedDate!==todayKey){ announcedKeys={}; announcedDate=todayKey; }
+
+    var nowMin=now.getHours()*60+now.getMinutes();
+    collectAnnouncements(now).forEach(function(item){
+      var alertAt=item.startMin-30;
+      if(nowMin>=alertAt&&nowMin<alertAt+2&&!announcedKeys[item.key]){
+        announcedKeys[item.key]=true;
+        speak(item.text);
+      }
+    });
+  }
+
+  (function(){
+    var btn=document.getElementById("voiceToggle");
+    if(!btn) return;
+    if(!window.speechSynthesis){
+      btn.disabled=true;
+      btn.title="此瀏覽器不支援語音播放";
+      btn.style.opacity=".4";
+      return;
+    }
+    btn.onclick=function(){
+      voiceEnabled=!voiceEnabled;
+      btn.textContent=voiceEnabled?"🔊":"🔇";
+      btn.classList.toggle("on",voiceEnabled);
+      btn.title=voiceEnabled?"語音提醒：播放中（點一下暫停）":"語音提醒（尚未開啟）";
+      if(voiceEnabled){
+        speak("語音提醒已開啟");
+      }else{
+        window.speechSynthesis.cancel();
+      }
+    };
+  })();
 
   renderStrip();
   renderLeave();
