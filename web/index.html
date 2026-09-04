@@ -347,6 +347,26 @@ body{
 }
 
 /* ---- 行事曆 ---- */
+.cal-filter{
+  display:flex;flex-wrap:wrap;gap:6px;
+  padding:10px 13px 0;
+}
+.cal-chip{
+  font-family:inherit;
+  font-size:clamp(10.5px,.8vw,13px);
+  padding:4px 10px;
+  border-radius:20px;
+  border:1px solid var(--line);
+  background:transparent;
+  color:var(--ink-3);
+  cursor:pointer;
+  transition:background .15s ease,color .15s ease,border-color .15s ease,opacity .15s ease;
+}
+.cal-chip:hover{border-color:var(--ink-3)}
+.cal-chip:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.cal-chip.t1.on{background:rgba(74,159,216,.13);border-color:var(--blue);color:var(--blue)}
+.cal-chip.t2.on{background:rgba(155,140,216,.13);border-color:var(--violet);color:var(--violet)}
+.cal-chip.t3.on{background:rgba(61,190,107,.13);border-color:var(--green);color:var(--green)}
 .cal-day{margin-bottom:13px}
 .cal-day:last-child{margin-bottom:0}
 .cal-daylabel{
@@ -520,6 +540,7 @@ try{
         <span class="panel-title">行程</span>
         <span class="panel-meta">Google 行事曆</span>
       </div>
+      <div class="cal-filter" id="calfilter"></div>
       <div class="panel-body" id="calbody"></div>
     </section>
 
@@ -898,6 +919,60 @@ try{
     if(meta) meta.textContent=live>0?("進行中 "+live+" 項"):"目前無進行中項目";
   }
 
+  /* ---- 行事曆來源篩選 ----
+     從 CAL 資料裡掃出所有出現過的「行事曆來源」（大隊／局本部／義消），
+     每個來源一顆篩選鈕，開關狀態記在瀏覽器裡，重新整理後還記得。 */
+  var CAL_NAMES=[], CAL_NAME_TAG={};
+  (function(){
+    var seen={};
+    CAL.forEach(function(day){
+      day.items.forEach(function(ev){
+        if(!seen[ev.cal]){ seen[ev.cal]=true; CAL_NAMES.push(ev.cal); CAL_NAME_TAG[ev.cal]=ev.tag||"t1"; }
+      });
+    });
+  })();
+
+  var CAL_FILTER_KEY="board-cal-filter";
+  var calActive=(function(){
+    var saved=null;
+    try{ saved=JSON.parse(localStorage.getItem(CAL_FILTER_KEY)||"null"); }catch(e){}
+    if(Array.isArray(saved)){
+      var s=new Set(saved.filter(function(n){ return CAL_NAMES.indexOf(n)>=0; }));
+      if(s.size) return s;
+    }
+    return new Set(CAL_NAMES);   // 預設全選
+  })();
+
+  function saveCalFilter(){
+    try{ localStorage.setItem(CAL_FILTER_KEY,JSON.stringify(Array.from(calActive))); }catch(e){}
+  }
+
+  function renderCalFilterChips(){
+    var host=document.getElementById("calfilter");
+    if(!host||CAL_NAMES.length<2) return;   // 只有一個來源就不需要篩選鈕
+
+    host.innerHTML=CAL_NAMES.map(function(name){
+      var on=calActive.has(name);
+      var tag=CAL_NAME_TAG[name];
+      return '<button type="button" class="cal-chip '+tag+(on?" on":"")+
+             '" data-cal="'+esc(name)+'">'+esc(name)+"</button>";
+    }).join("");
+
+    Array.prototype.forEach.call(host.querySelectorAll(".cal-chip"),function(btn){
+      btn.onclick=function(){
+        var n=btn.getAttribute("data-cal");
+        if(calActive.has(n)){
+          if(calActive.size>1) calActive.delete(n);   // 至少留一個，避免整排關光看起來像壞掉
+        }else{
+          calActive.add(n);
+        }
+        saveCalFilter();
+        renderCalFilterChips();
+        renderCal(new Date());
+      };
+    });
+  }
+
   /* 行事曆目前是靜態快照（撰寫看板時手動抓一次 Google 行事曆存進來的），
      不是即時連線——系統裡沒有會自動去問 Google 要新資料的東西，所以快照
      用完（超過 CAL 陣列最後一天）畫面就不會再長出新的一天。真正要做到
@@ -921,6 +996,12 @@ try{
       var pt=day.d.split("-");
       var dt=new Date(+pt[0],+pt[1]-1,+pt[2]);
       var isToday=(day.d===todayKey);
+      var items=day.items.filter(function(ev){ return calActive.has(ev.cal); });
+
+      // 這天原本就沒有行程 → 顯示「無行程」；
+      // 這天有行程、但全部被篩選鈕關掉 → 整天跳過，不特別顯示，
+      // 避免跟「真的沒行程」混淆。
+      if(day.items.length&&!items.length) return;
 
       html+='<div class="cal-day"><div class="cal-daylabel">';
       html+='<span class="cal-date">'+(+pt[1])+"/"+(+pt[2])+"</span>";
@@ -928,9 +1009,9 @@ try{
       if(isToday) html+='<span class="cal-today">今日</span>';
       html+="</div>";
 
-      if(!day.items.length) html+='<div class="cal-empty">無行程</div>';
+      if(!items.length) html+='<div class="cal-empty">無行程</div>';
 
-      day.items.forEach(function(ev){
+      items.forEach(function(ev){
         var live=false;
         if(isToday&&ev.t){
           var m=ev.t.match(/(\d{2}):(\d{2}).(\d{2}):(\d{2})/);
@@ -948,7 +1029,7 @@ try{
       });
       html+="</div>";
     });
-    host.innerHTML=html;
+    host.innerHTML=html||'<div class="cal-empty">所選的行事曆來源近期無行程</div>';
   }
 
   var lastKey=null, lastMin=-1;
@@ -1119,6 +1200,7 @@ try{
       if(day.d!==todayKey) return;
       day.items.forEach(function(ev){
         if(ev.allday||!ev.t) return;
+        if(!calActive.has(ev.cal)) return;   // 被篩選鈕關掉的來源不播報
         var m=ev.t.match(/^(\d{2}):(\d{2})/);
         if(!m) return;
         var startMin=(+m[1])*60+(+m[2]);
@@ -1183,6 +1265,7 @@ try{
 
   renderStrip();
   renderLeave();
+  renderCalFilterChips();
   tick();
   setInterval(tick,1000);
   setInterval(checkFreshness,60*1000);   // 每分鐘檢查一次資料是否太久沒更新
