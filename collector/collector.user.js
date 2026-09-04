@@ -1,17 +1,28 @@
+// ==UserScript==
+// @name         勤務看板自動採集器
+// @namespace    ttfd-duty-board
+// @version      1.0
+// @description  進到 ttfd2 頁面就自動執行採集器，不需要手動點書籤。配合 Windows 排程器每天固定時間開啟頁面，達到「重新整理頁面＋觸發採集」全自動化。
+// @match        https://ttfd2.firemis.tw/*
+// @run-at       document-idle
+// @grant        none
+// ==/UserScript==
+
 /* ============================================================
-   勤務看板採集器 — 可讀版
-   （實際使用請用 collector-bookmarklet.txt 的書籤版，邏輯與本檔一致）
+   這份檔案的邏輯跟 collector.js 完全一樣，只是多包了上面那段
+   Tampermonkey 設定標頭，讓它從「手動點書籤才執行」變成「頁面
+   一打開就自動執行」。改動採集邏輯只要改 collector.js 那份，
+   這裡跟著同步貼過來即可，避免兩份邏輯各自修改、越改越不一樣。
 
-   在 ttfd2 勤務系統頁面上執行。它會：
-   1. 取得目前登入身分的授權標頭（不讀、不存你的帳號密碼）
-   2. 向系統要今天成功大隊 6 個單位的勤務表
-   3. 把「以人為單位」的排班轉成「以時段為單位」的看板格式
-   4. 送到你自己的 Render 伺服器，供電視牆與手機讀取
-   5. 完整資料每 4 小時自動重跑一次（勤務表修正不頻繁，不需要更密集），
-      即時出勤狀態另外每 30 分鐘查一次（只打 shift-status/list 這支，
-      不重查整份勤務表，對系統負擔比較小，資料也比較即時）
+   @grant none 這行很重要：讓腳本跑在頁面「原生」的執行環境裡，
+   不是 Tampermonkey 預設的隔離沙盒——沒有這行，程式碼裡攔截
+   Authorization 標頭用的 fetch/XMLHttpRequest 改寫會抓不到頁面
+   自己發出的請求，整支腳本會失效。
 
-   第一次執行會問你 Render 網址與通行碼，記在這台電腦的瀏覽器裡，之後不再問。
+   第一次執行仍然會問 Render 網址與通行碼（用 prompt 對話框）。
+   排程情境沒有人在螢幕前，對話框會卡住——所以務必先用書籤版
+   手動跑過一次、把設定存進這台電腦的瀏覽器後，才開始排程，
+   之後就不會再跳出對話框。
    ============================================================ */
 
 (function () {
@@ -58,7 +69,7 @@
     head.style.cssText =
       "display:flex;align-items:center;gap:8px;padding:9px 12px;background:#1b2530;" +
       "border-bottom:1px solid #3a4a5a;font-weight:700";
-    head.appendChild(document.createTextNode("勤務看板採集器 v9"));
+    head.appendChild(document.createTextNode("勤務看板採集器（自動模式 v9）"));
 
     var stop = document.createElement("button");
     stop.textContent = "停止並關閉";
@@ -199,10 +210,10 @@
 
     say("嘗試自動觸發查詢以取得授權…");
     return waitForQueryClick(10000).then(function (clicked) {
-      say(clicked ? "已自動點擊查詢，等待系統回應…" : "找不到查詢按鈕，請手動按一次頁面上的「查詢」。", clicked ? null : "#F2A93B");
+      say(clicked ? "已自動點擊查詢，等待系統回應…" : "找不到查詢按鈕，可能不在勤務表列表頁。", clicked ? null : "#F2A93B");
 
       return waitForAuth(15000).catch(function () {
-        say("尚未取得授權，請確認已登入並停在勤務表列表頁，手動按一次「查詢」。", "#F2A93B");
+        say("尚未取得授權，60 秒內若頁面切到勤務表列表頁會自動重試一次。", "#F2A93B");
         return waitForAuth(60000);
       });
     });
@@ -481,26 +492,27 @@
       });
   }
 
-  /* ---------- 啟動 ---------- */
+  /* ---------- 啟動 ----------
+     跟書籤版最大的不同：這裡不能用 prompt() 卡住等輸入——排程執行時
+     沒有人在螢幕前應答。如果 localStorage 裡還沒有存過網址／通行碼
+     （代表這台電腦、這個瀏覽器從來沒有用書籤版跑過一次），就直接
+     顯示錯誤、不啟動，避免卡住一個沒人回應的對話框。 */
 
   ui();
 
   var url = localStorage.getItem(CFG_URL);
   var tok = localStorage.getItem(CFG_TOK);
 
-  if (!url) {
-    url = prompt("請輸入看板伺服器網址\n例如 https://duty-board.onrender.com");
-    if (!url) { say("已取消。", "#F2A93B"); return; }
-    localStorage.setItem(CFG_URL, url.trim());
-  }
-  if (!tok) {
-    tok = prompt("請輸入推送通行碼\n（即 Render 上設定的 PUSH_TOKEN）");
-    if (!tok) { say("已取消。", "#F2A93B"); return; }
-    localStorage.setItem(CFG_TOK, tok.trim());
+  if (!url || !tok) {
+    say("尚未設定看板伺服器網址或通行碼，自動模式無法啟動。", "#E4392B");
+    say("請先用書籤版（collector-bookmarklet.txt）手動執行一次，" +
+        "把設定存進這個瀏覽器後，自動模式才會運作。", "#F2A93B");
+    return;
   }
 
-  var cfg = { url: localStorage.getItem(CFG_URL), tok: localStorage.getItem(CFG_TOK) };
+  var cfg = { url: url, tok: tok };
   say("看板伺服器：" + cfg.url);
+  say("自動模式：頁面一開啟就會自動執行，不需要點任何東西。", "#93A6B6");
 
   function run(quiet) {
     getAuth()
@@ -528,8 +540,9 @@
      07:00，就提前在 07:00 那個時間點多跑一次，讓新的一天一開始就有
      新鮮資料，而不是要等到 4 小時的排程剛好轉到才更新。
      這只在「這個分頁從半夜到隔天都沒被關掉」時才有意義——電腦關機、
-     分頁被關掉都會讓這個排程跟著消失，隔天早上還是需要有人登入後
-     點一次書籤。 */
+     分頁被關掉都會讓這個排程跟著消失，這也是為什麼要搭配 Windows
+     排程器：就算分頁被關掉、電腦重開機，隔天早上也會有新的分頁
+     自動開啟、自動接手。 */
   var DAILY_HOUR = 7;
 
   function msUntilNextRun(now) {
