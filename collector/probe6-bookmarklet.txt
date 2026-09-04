@@ -1,0 +1,33 @@
+單位狀態資料格式探測（第六階段）— 書籤版
+============================================================
+
+目的：看清楚 shift-status/list（單位狀態）與 shift-record/list
+      （出入記錄）這兩個 API 實際回傳的欄位，尤其是「單位訊息」
+      在有出勤案件時長什麼樣子。
+
+安全設計：這支明確排除任何網址含有 /case/ 的請求，不會攔截、
+也不會顯示案件系統的內容——就算不小心觸發到，也不會被記錄。
+
+【怎麼裝】
+Ctrl+Shift+O 開書籤管理員 →「⋮」→ 加入新書籤，名稱填：探測單位狀態
+網址欄貼底下那一整行
+
+【怎麼用】— 這支要點兩次，中間需要讓頁面重新查詢一次
+1. 在 ttfd.firemis.tw/#/home 首頁，點第一次「探測單位狀態」書籤
+   → 跳出「攔截器已安裝」提示
+2. 觸發一次新的查詢，兩種方式擇一：
+   a. 點一下「單位狀態」旁邊的「隱藏」，再點一次讓它重新顯示
+   b. 或是等 30-60 秒，如果這個面板本來就會自動輪詢更新，會自然攔到
+3. 點第二次「探測單位狀態」書籤 → 結果框出現 → Ctrl+C 複製貼回對話
+4. 雙擊框可關閉
+
+【它做什麼】
+只攔截網址含 shift-status 或 shift-record 的請求，印出完整回應內容
+（這兩個都是低風險的單位狀態資料，不含案件細節）。
+明確排除網址含 /case/ 的任何請求，不記錄也不顯示。
+不主動呼叫任何 API，只在旁邊看頁面自己發出的請求。
+
+
+─── 從這裡開始複製 ───
+javascript:(function(){function S(o,d){d=d||0;if(d>5)return'…';if(o===null)return'null';if(Array.isArray(o))return o.length?('['+S(o[0],d+1)+'] x'+o.length):'[]';if(typeof o==='object'){var ks=Object.keys(o),out=[];for(var i=0;i<ks.length&&i<40;i++){var k=ks[i];if(/token|jwt|auth|password|secret|pwd/i.test(k)){out.push(k+':***');continue;}out.push(k+':'+S(o[k],d+1));}if(ks.length>40)out.push('…共'+ks.length+'欄');return'{'+out.join(', ')+'}';}var s=String(o);return typeof o+'('+(s.length>60?s.slice(0,60)+'…':s)+')';}function R(t){try{return S(JSON.parse(t));}catch(e){return'非JSON, 前150字: '+t.slice(0,150);}}function ok(u){return/shift-status|shift-record/i.test(u)&&!/\/case\//i.test(u);}if(!window.__cap6){window.__cap6=[];var of=window.fetch;window.fetch=function(){var u=arguments[0],o=arguments[1]||{};var url=(typeof u==='string')?u:(u&&u.url)||'';if(ok(url)){var p=of.apply(this,arguments);p.then(function(r){r.clone().text().then(function(t){window.__cap6.push({m:o.method||'GET',u:url,s:r.status,r:R(t)});}).catch(function(){});}).catch(function(){});return p;}return of.apply(this,arguments);};var oo=XMLHttpRequest.prototype.open,os=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(m,u){this.__m=m;this.__u=u;return oo.apply(this,arguments);};XMLHttpRequest.prototype.send=function(b){var x=this;if(ok(x.__u||'')){x.addEventListener('load',function(){window.__cap6.push({m:x.__m,u:x.__u,s:x.status,r:R(String(x.responseText||''))});});}return os.apply(this,arguments);};alert('攔截器已安裝（只看 shift-status / shift-record，不碰案件資料）。\n\n請點一下「單位狀態」旁的「隱藏」再顯示一次，\n或等 30-60 秒讓它自動輪詢，\n然後再點一次這個書籤看結果。');return;}var L=['=== 單位狀態格式 ===','共攔截 '+window.__cap6.length+' 筆',''];if(!window.__cap6.length){L.push('尚未攔截到。請觸發一次刷新後再試。');}for(var i=0;i<window.__cap6.length&&i<6;i++){var c=window.__cap6[i];L.push('['+(i+1)+'] '+c.m+' '+c.u);L.push('  status: '+c.s);L.push('  '+c.r);L.push('');}var d=document.createElement('textarea');d.value=L.join('\n');d.style.cssText='position:fixed;right:10px;bottom:10px;z-index:2147483647;width:620px;max-width:92vw;height:440px;background:#0e141a;color:#cfe0ee;font:11.5px/1.5 monospace;padding:10px;border:2px solid #3a4a5a;border-radius:5px;box-shadow:0 8px 30px rgba(0,0,0,.6)';d.title='雙擊可關閉';d.ondblclick=function(){d.parentNode.removeChild(d);};document.body.appendChild(d);d.select();})()
+─── 複製到這裡 ───

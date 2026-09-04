@@ -141,6 +141,48 @@ body{
 }
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
 
+/* ================= 即時出勤橫幅 =================
+   只有真的有人不在隊（且不是請假）時才出現，平時整條隱藏不佔版面。 */
+.outbar{
+  display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;
+  padding:8px var(--pad);
+  background:rgba(228,57,43,.1);
+  border-bottom:1px solid rgba(228,57,43,.3);
+  font-size:clamp(11px,.85vw,13.5px);
+}
+.outbar-dot{
+  width:7px;height:7px;border-radius:50%;
+  background:var(--red);flex:none;
+  animation:pulse 1.6s ease-in-out infinite;
+}
+.outbar-count{
+  font-weight:700;color:var(--red-bright);
+  flex:none;
+}
+.outbar-list{
+  display:flex;flex-wrap:wrap;gap:6px 16px;
+  flex:1;min-width:0;
+}
+.outbar-item{
+  color:var(--ink);
+  white-space:nowrap;
+}
+.outbar-item .u{color:var(--ink-3);margin-right:4px}
+.outbar-item .reason{
+  color:var(--red-bright);
+  margin:0 4px;
+}
+.outbar-item .car{
+  font-family:var(--f-mono);
+  color:var(--ink-2);
+  margin-right:4px;
+}
+.outbar-item .since{
+  color:var(--ink-3);
+  font-family:var(--f-mono);
+  font-variant-numeric:tabular-nums;
+}
+
 /* ================= 大隊總覽帶 ================= */
 .strip{
   display:flex;align-items:stretch;gap:1px;
@@ -217,6 +259,11 @@ body{
   grid-template-columns:repeat(2,1fr);
   gap:var(--pad);
 }
+/* 單位篩選鎖定在單一單位時，卡片放大填滿，字級跟著放大方便單位自己看 */
+.squads.solo{grid-template-columns:1fr}
+.squads.solo .sq-name{font-size:clamp(18px,1.6vw,26px)}
+.squads.solo .row-v{font-size:clamp(15px,1.3vw,22px)}
+.squads.solo .row-k{font-size:clamp(13px,1vw,17px)}
 .sq{
   min-width:0;
   background:var(--surface);
@@ -484,18 +531,35 @@ body{
 .ctrl-btn:hover{background:var(--surface-3);color:var(--ink)}
 .ctrl-btn:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 .ctrl-btn.on{color:var(--green);border-color:var(--green)}
+.ctrl-select{
+  height:36px;
+  padding:0 10px;
+  background:var(--surface-2);
+  border:1px solid var(--line);
+  border-radius:6px;
+  color:var(--ink);
+  font-family:inherit;
+  font-size:clamp(11px,.85vw,13.5px);
+  cursor:pointer;
+  transition:border-color .15s ease;
+}
+.ctrl-select:hover{border-color:var(--ink-3)}
+.ctrl-select:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.ctrl-select.scoped{border-color:var(--blue);color:var(--blue)}
 </style>
 
 <script>
-/* 越早套用主題越好，避免頁面先閃一下深色才切成淺色 */
+/* 越早套用主題越好，避免頁面先閃一下深色才切成淺色。
+   預設是日間模式；只有明確存過「dark」（使用者自己切換過）才維持深色。 */
 try{
-  if(localStorage.getItem("board-theme")==="light"){
+  if(localStorage.getItem("board-theme")!=="dark"){
     document.documentElement.setAttribute("data-theme","light");
   }
 }catch(e){}
 </script>
 
 <div class="controls">
+  <select class="ctrl-select" id="unitScope" title="切換顯示範圍：全大隊或單一分隊" aria-label="切換顯示範圍"></select>
   <button class="ctrl-btn" id="themeToggle" type="button" title="切換日間／夜間模式" aria-label="切換日間／夜間模式">🌙</button>
   <button class="ctrl-btn" id="voiceToggle" type="button" title="語音提醒（尚未開啟）" aria-label="語音提醒開關">🔇</button>
 </div>
@@ -520,6 +584,8 @@ try{
   <span class="notice-dot"></span>
   <span id="noticetext"><b>勤務資料為 2026-09-03 的畫面快照</b>　　尚未收到採集器送來的即時資料，畫面顯示內建範例。行事曆為 Google 行事曆真實資料。</span>
 </div>
+
+<div class="outbar" id="outbar" hidden></div>
 
 <div class="strip" id="strip"></div>
 
@@ -675,6 +741,10 @@ try{
     {unit:"長濱分隊",time:"14-17",name:"學科（消防及災害防救專業法令）"}
   ];
 
+  // 即時出勤狀態（誰現在不在隊、為什麼）。這塊沒有示範資料可放——
+  // 空陣列＝橫幅不顯示，等採集器送來真實資料才會出現。
+  var OUT_STATUS=[];
+
   // Google 行事曆真實資料（2026-09-03 取得）
   // 靜態快照（2026-09-04 由 Google 行事曆取得，涵蓋至 9/18）。
   // 這不是即時連線——見下方 renderCal() 前的說明。
@@ -736,6 +806,91 @@ try{
 
   function slotKey(h){ return p2(h)+"-"+p2(h+1); }
 
+  /* ---- 單位範圍（大隊視角／單一分隊視角） ----
+     選「全部」= 大隊視角，維持現有全部顯示的行為。
+     選某個分隊 = 只看該分隊自己的編組卡、當日勤務、未到勤名單，
+     語音提醒的勤務項目也只播該分隊的。
+     大隊總覽帶、Google 行事曆這兩塊不受這個選擇影響——前者是全大隊
+     的巨觀資訊，後者的資料來源本來就沒有「屬於哪個分隊」這種對應。
+     選擇存在瀏覽器 localStorage，同一台裝置下次開啟還記得。 */
+  var UNIT_SCOPE_KEY="board-unit-scope";
+  var unitScope="ALL";
+  try{ unitScope=localStorage.getItem(UNIT_SCOPE_KEY)||"ALL"; }catch(e){}
+
+  function visibleUnits(){
+    if(unitScope==="ALL") return UNITS;
+    var f=UNITS.filter(function(u){ return u.name===unitScope; });
+    return f.length?f:UNITS;   // 選到的單位這次資料裡沒有 → 退回全部，不要顯示空白
+  }
+
+  function renderUnitSelector(){
+    var sel=document.getElementById("unitScope");
+    if(!sel) return;
+
+    var names=UNITS.map(function(u){ return u.name; });
+    if(unitScope!=="ALL"&&names.indexOf(unitScope)<0){
+      // 選到的分隊在最新資料裡消失了（例如單位改名），退回全部並記住
+      unitScope="ALL";
+      try{ localStorage.setItem(UNIT_SCOPE_KEY,unitScope); }catch(e){}
+    }
+
+    var html='<option value="ALL"'+(unitScope==="ALL"?" selected":"")+'>全部（大隊視角）</option>';
+    names.forEach(function(n){
+      html+='<option value="'+esc(n)+'"'+(unitScope===n?" selected":"")+'>'+esc(n)+"</option>";
+    });
+    sel.innerHTML=html;
+    sel.classList.toggle("scoped",unitScope!=="ALL");
+
+    sel.onchange=function(){
+      unitScope=sel.value;
+      try{ localStorage.setItem(UNIT_SCOPE_KEY,unitScope); }catch(e){}
+      sel.classList.toggle("scoped",unitScope!=="ALL");
+      renderSquads(lastKey||slotKey(new Date().getHours()));
+      renderLeave();
+      renderTasks(new Date());
+      renderOutStatus();
+    };
+  }
+
+  /* ---- 即時出勤橫幅 ----
+     OUT_STATUS 來自採集器送的 shift-status/list（誰現在不在隊、
+     原因、車輛、從幾點開始），已在採集器端排除請假類的項目，
+     這裡只負責顯示。跟單位篩選同一套邏輯：選了某分隊就只顯示
+     該分隊的項目。 */
+  function fmtSince(iso){
+    try{
+      var d=new Date(iso);
+      return p2(d.getHours())+":"+p2(d.getMinutes());
+    }catch(e){ return "—"; }
+  }
+
+  function renderOutStatus(){
+    var host=document.getElementById("outbar");
+    if(!host) return;
+
+    var list=(unitScope==="ALL")?OUT_STATUS:OUT_STATUS.filter(function(o){ return o.unit===unitScope; });
+
+    if(!list.length){
+      host.hidden=true;
+      host.innerHTML="";
+      return;
+    }
+
+    var items=list.map(function(o){
+      var s='<span class="outbar-item"><span class="u">'+esc(o.unit)+"</span>"+esc(o.name);
+      if(o.reason) s+='<span class="reason">'+esc(o.reason)+"</span>";
+      if(o.car) s+='<span class="car">'+esc(o.car)+"</span>";
+      if(o.since) s+='<span class="since">'+fmtSince(o.since)+" 起</span>";
+      s+="</span>";
+      return s;
+    }).join("");
+
+    host.innerHTML='<span class="outbar-dot"></span>'+
+      '<span class="outbar-count">'+list.length+' 人出勤中</span>'+
+      '<span class="outbar-list">'+items+"</span>";
+    host.hidden=false;
+  }
+
   function renderStrip(){
     var host=document.getElementById("strip");
     if(!host) return;
@@ -763,8 +918,11 @@ try{
     var host=document.getElementById("squads");
     if(!host) return;
     var html="";
+    var units=visibleUnits();
 
-    UNITS.forEach(function(u){
+    host.classList.toggle("solo",unitScope!=="ALL"&&units.length===1);
+
+    units.forEach(function(u){
       html+='<div class="sq">';
       html+='<div class="sq-head">';
       html+='<span class="sq-name">'+esc(u.name)+"</span>";
@@ -809,7 +967,7 @@ try{
     if(!host) return;
     var html="",count=0;
 
-    UNITS.forEach(function(u){
+    visibleUnits().forEach(function(u){
       if(!u.leave) return;
       var rows="";
       Object.keys(u.leave).forEach(function(k){
@@ -885,7 +1043,8 @@ try{
 
     // 依開始時間排序，讓不同單位、不同時長的項目照時間軸自然排列，
     // 不再是「先列大隊、再列分隊」這種跟時間無關的分組順序。
-    var withMeta=TASKS.map(function(t){
+    var scoped=(unitScope==="ALL")?TASKS:TASKS.filter(function(t){ return t.unit===unitScope; });
+    var withMeta=scoped.map(function(t){
       var r=parseRange(t.time);
       return {t:t, r:r, start:(r?r[0]:0)};
     });
@@ -1139,6 +1298,7 @@ try{
           });
         }
         if(Array.isArray(d.tasks)) TASKS=d.tasks;
+        if(Array.isArray(d.outStatus)) OUT_STATUS=d.outStatus;
 
         remoteReceivedAt=new Date(j.receivedAt);
         remoteDutyDate=d.date;
@@ -1146,6 +1306,8 @@ try{
 
         renderStrip();
         renderLeave();
+        renderUnitSelector();
+        renderOutStatus();
         lastKey=null; lastMin=-1;   // 強制重繪
         tick();
       })
@@ -1164,7 +1326,7 @@ try{
     }
     var saved=null;
     try{ saved=localStorage.getItem("board-theme"); }catch(e){}
-    apply(saved==="light");
+    apply(saved!=="dark");   // 預設日間模式，只有明確存過 dark 才是夜間
     btn.onclick=function(){
       var next=document.documentElement.getAttribute("data-theme")!=="light";
       apply(next);
@@ -1215,6 +1377,7 @@ try{
     });
 
     TASKS.forEach(function(t){
+      if(unitScope!=="ALL"&&t.unit!==unitScope) return;   // 單位視角下只播自己單位的勤務
       var r=parseRange(t.time);
       if(!r) return;
       var startMin=r[0]*60;
@@ -1268,6 +1431,8 @@ try{
   renderStrip();
   renderLeave();
   renderCalFilterChips();
+  renderUnitSelector();
+  renderOutStatus();
   tick();
   setInterval(tick,1000);
   setInterval(checkFreshness,60*1000);   // 每分鐘檢查一次資料是否太久沒更新

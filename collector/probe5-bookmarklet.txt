@@ -1,0 +1,34 @@
+案件系統結構探測（第五階段，新系統）— 書籤版
+============================================================
+
+目的：探測 ttfd.firemis.tw/#/case-list 這個「案件列表」頁面的結構，
+      找出它的資料介面、表格欄位、以及「即時出動人車」相關的資料
+      藏在哪裡。這是全新的系統，之前對 ttfd2 的探測結果不能直接套用。
+
+【怎麼裝】
+Ctrl+Shift+O 開書籤管理員 →「⋮」→ 加入新書籤，名稱填：探測案件系統
+網址欄貼底下那一整行
+
+【怎麼用】
+1. 登入 ttfd.firemis.tw，開到「案件列表」頁（case-list），
+   確認畫面上有資料顯示（若有查詢/篩選功能，先按過一次查詢）
+2. 點一下「探測案件系統」書籤
+3. 右下角出現結果框，內容已自動全選 → Ctrl+C 複製，貼回對話
+4. 雙擊框可關閉
+
+【它做什麼】
+跟之前探測 ttfd2 用的是同一套安全做法：
+  1. 列出這個頁面呼叫過哪些資料介面（找出 API 網址）
+  2. 列出畫面上每個表格的欄位標題與前三列內容
+  3. 找出「即時出動」「人車」「狀態」這類關鍵字出現在哪些欄位
+只讀取畫面，不修改、不送出任何資料，結果只顯示在你自己的螢幕上。
+
+【跟前面幾支探測的差異】
+這支多做一件事：列出頁面上所有帶「秒」或「時:分:秒」格式的文字
+（例如出動時間），因為「即時出動」通常會有精確到秒的時間戳，
+這能幫忙判斷資料更新的顆粒度。
+
+
+─── 從這裡開始複製 ───
+javascript:(function(){var L=[];L.push('=== 案件系統結構探測 ===');L.push('網址: '+location.href);L.push('時間: '+new Date().toLocaleString('zh-TW'));L.push('');L.push('--- 1. API 請求 ---');try{var res=performance.getEntriesByType('resource')||[];var apis=[];for(var i=0;i<res.length;i++){var u=res[i].name;if(/\/api\//i.test(u)&&!/\.(js|css|png|jpg|jpeg|gif|svg|woff2?|ttf)(\?|$)/i.test(u)){var s=u.replace(location.origin,'');if(apis.indexOf(s)===-1)apis.push(s);}}if(apis.length){for(var a=0;a<apis.length;a++)L.push('  '+apis[a]);}else{L.push('  (沒有偵測到，請先按過畫面上的查詢/篩選再重跑)');}}catch(e){L.push('  讀取失敗: '+e.message);}L.push('');L.push('--- 2. 表格結構 ---');var tables=document.querySelectorAll('table');L.push('共找到 '+tables.length+' 個表格');L.push('');for(var t=0;t<tables.length&&t<8;t++){var tb=tables[t],rows=tb.rows||[];L.push('[表格 '+(t+1)+'] 共 '+rows.length+' 列，class='+(tb.className||'(無)'));for(var r=0;r<rows.length&&r<3;r++){var cells=rows[r].cells||[],txt=[];for(var c=0;c<cells.length&&c<14;c++){var v=(cells[c].innerText||'').replace(/\s+/g,' ').trim();var span=cells[c].colSpan>1?('x'+cells[c].colSpan):'';txt.push(v.slice(0,16)+span);}L.push('  第'+(r+1)+'列('+cells.length+'欄): '+txt.join(' | '));}L.push('');}L.push('--- 3. 關鍵字掃描（出動/人車/狀態/車輛/案件編號） ---');try{var body=(document.body.innerText||'').split('\n');var keys=['出動','人車','狀態','車輛','案件','受理','派遣','到場','救護車','分隊'];var hit=0;for(var b=0;b<body.length&&hit<25;b++){var line=body[b].trim();if(!line)continue;for(var k=0;k<keys.length;k++){if(line.indexOf(keys[k])>=0){L.push('  '+line.slice(0,80));hit++;break;}}}if(!hit)L.push('  (未偵測到相關文字)');}catch(e2){L.push('  讀取失敗: '+e2.message);}L.push('');L.push('--- 4. 時間戳格式（含秒） ---');try{var body2=(document.body.innerText||'').split('\n');var timePattern=/\d{1,2}:\d{2}:\d{2}/;var hit2=0;for(var b2=0;b2<body2.length&&hit2<10;b2++){var line2=body2[b2].trim();if(timePattern.test(line2)){L.push('  '+line2.slice(0,80));hit2++;}}if(!hit2)L.push('  (未偵測到含秒的時間格式，可能只精確到分鐘)');}catch(e3){L.push('  讀取失敗: '+e3.message);}L.push('');L.push('=== 探測結束 ===');var d=document.createElement('textarea');d.value=L.join('\n');d.style.cssText='position:fixed;right:10px;bottom:10px;z-index:2147483647;width:600px;max-width:92vw;height:420px;background:#0e141a;color:#cfe0ee;font:11.5px/1.5 monospace;padding:10px;border:2px solid #3a4a5a;border-radius:5px;box-shadow:0 8px 30px rgba(0,0,0,.6)';d.title='雙擊可關閉';d.ondblclick=function(){d.parentNode.removeChild(d);};document.body.appendChild(d);d.select();})()
+─── 複製到這裡 ───

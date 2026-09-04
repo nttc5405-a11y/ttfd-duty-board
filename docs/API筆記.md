@@ -160,3 +160,86 @@ GET /api/v2/shift/{_id}
 `Authorization` 標頭值（monkey-patch `XMLHttpRequest.setRequestHeader`
 與 `fetch`），並自動模擬點擊畫面上的「查詢」按鈕觸發一次真實請求。
 攔截到的值只存在執行期間的記憶體，不落地存檔。
+
+---
+
+## 五、ttfd.firemis.tw（案件系統）探測筆記（2026-09-04）
+
+**這是另一個網域**（`ttfd.firemis.tw`，不是 `ttfd2`），首頁
+`#/home` 同時混合了兩種來源的資料：
+
+1. **案件相關**（`/api/case/v1/...`，相對路徑＝同源於 ttfd.firemis.tw
+   自己的後端）：`list`、`case/{編號}`、`address/...`、`case-routing/...`、
+   `clients`、`caseClients`。這塊含報案人姓名、電話、地址、患者狀況，
+   **本專案明確決定不碰**，不建立對應的採集邏輯，探測工具也刻意排除
+   任何含 `/case/` 的請求。
+
+2. **單位狀態相關**（完整網址指向 `https://ttfd2.firemis.tw/api/v2/...`，
+   跨網域直接打 ttfd2 的後端）：
+   - `shift-status/list` —「單位狀態」表的資料來源（值班、在隊、在外、
+     單位訊息前三筆），**低風險，這是我們要的資料**
+   - `shift-record/list` — 可能對應「前十筆出入及工作記錄」
+   - `shift-dept-post/list`、`tracker/trackers`、`emic/types` 等，
+     用途待確認
+
+**重要**：因為 `shift-status/list` 是打 `ttfd2` 的後端，跟現有勤務表
+採集器（`collector/collector.js`）**用的是同一個系統、同一種授權
+機制**。這代表擴充這塊功能時，很可能可以直接沿用現有採集器已經在
+用的「攔截 Authorization 標頭」做法，不需要為 ttfd.firemis.tw
+另外走一套登入流程。
+
+其餘找到但確認不需要的端點：`supervise/v1/schedules`、
+`car/v1/maintenance-schedules`、`car/v1/nextvalidate-schedules`
+（車輛保養排程）、`weather/...`、`emic/typhoon`（天氣颱風示警）——
+與勤務看板需求無關，不處理。
+
+---
+
+## 六、shift-status/list 確認格式（2026-09-04）
+
+**呼叫方式**：`POST /api/v2/shift-status/list`，body `{depts: DEPTS}`
+（跟 `shift/list` 同一組單位 ID）。單純 GET 不帶 body 會回 503。
+
+**回傳**：陣列，每個單位一筆：
+
+```json
+{
+  "dept": "593f8339a326a612c81cfc9d",
+  "inDeptUsers": [],
+  "outDeptUsers": [
+    {
+      "no": "2", "kind": "副大隊長", "name": "沈煒翔",
+      "inDept": false,
+      "statusAt": "2026-09-04T05:28:00.000Z",
+      "recordKind": "救護",
+      "recordCalls": [],
+      "recordContent": "測試",
+      "leave": false,
+      "recordInDept": "出"
+    }
+  ],
+  "manger": {"no":"2","kind":"副大隊長","name":"沈煒翔"},
+  "day": 2, "night": 2, "current": 2, "dutyUsers": []
+}
+```
+
+（原文如此，`manger` 少一個 a，系統本身的欄位命名，不是筆誤。）
+
+**已確認**：
+- `outDeptUsers` = 目前不在隊的人；`leave:true` 代表這筆是排定的請假
+  （已在 `shift/list` 的 `leave` 物件顯示過），`leave:false` 代表真的
+  是外出/出勤中，這是我們要的即時資訊
+- `recordKind` = 原因分類（例：「救護」）、`recordCalls` = 關聯車輛
+  （陣列，可能為空）、`statusAt` = 狀態起始時間（UTC ISO 字串）
+- `dept` 對照單位名稱不需要額外查表，`collect()` 在處理 `shift/list`
+  時已經建立 `deptToName` 對照（用主管文字比對得出），直接複用即可
+
+**已排除**：`recordContent`（自由文字備註欄，不帶出去，避免夾帶非預期
+內容）、所有內部 `_id`／`recordId`。
+
+**其餘試過但決定不用**：`shift-record/list`（出入記錄日誌）雖然也能
+GET，但內容包含 `logs[].ip`、`logs[].userAgent`（瀏覽器資訊），且
+本質是歷史稽核紀錄而非即時狀態，`shift-status/list` 已經足夠涵蓋
+「即時人力」需求，故不採用。
+
+見 `collector/collector.js` 的 `buildOutStatus()`。

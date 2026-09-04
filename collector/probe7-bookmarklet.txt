@@ -1,0 +1,28 @@
+單位狀態 API 直接查詢探測（第七階段）— 書籤版
+============================================================
+
+跟第六支不同：這支不用等頁面自己重新發請求，而是沿用「點查詢時
+攔截授權」的既有做法（跟採集器一樣），拿到授權後直接主動打
+shift-status/list 與 shift-record/list 這兩支 API，把完整回應
+顯示出來。只要能點一次「查詢」，一次就能看到結果，不用碰運氣等
+畫面自動刷新。
+
+安全設計：只打這兩支網址（低風險的單位狀態資料），不會呼叫任何
+含 /case/ 的網址；授權值只存在這次執行的記憶體裡，不落地存檔。
+
+【怎麼裝】
+Ctrl+Shift+O 開書籤管理員 →「⋮」→ 加入新書籤，名稱填：探測單位狀態2
+網址欄貼底下那一整行
+
+【怎麼用】— 一次即可，但要在「勤務表列表」頁執行（不是案件系統首頁）
+1. 登入 ttfd2.firemis.tw，開到「勤務表列表」頁
+2. 點一下「探測單位狀態2」書籤
+3. 它會自動幫你點一次「查詢」取得授權，接著主動查詢兩支 API
+4. 右下角出現結果框，內容已自動全選 → Ctrl+C 複製貼回對話
+5. 若第一次沒抓到授權，畫面會提示手動按一次「查詢」，再點一次書籤即可
+6. 雙擊框可關閉
+
+
+─── 從這裡開始複製 ───
+javascript:(function(){function S(o,d){d=d||0;if(d>5)return'…';if(o===null)return'null';if(Array.isArray(o))return o.length?('['+S(o[0],d+1)+'] x'+o.length):'[]';if(typeof o==='object'){var ks=Object.keys(o),out=[];for(var i=0;i<ks.length&&i<40;i++){var k=ks[i];if(/token|jwt|auth|password|secret|pwd/i.test(k)){out.push(k+':***');continue;}out.push(k+':'+S(o[k],d+1));}if(ks.length>40)out.push('…共'+ks.length+'欄');return'{'+out.join(', ')+'}';}var s=String(o);return typeof o+'('+(s.length>60?s.slice(0,60)+'…':s)+')';}function R(t){try{return S(JSON.parse(t));}catch(e){return'非JSON('+t.length+'字), 前150字: '+t.slice(0,150);}}var DEPTS=["5ee1d63d1679e1139fe2bbe2","593f83d2a326a612c81cfca4","593f8339a326a612c81cfc9d","593f841ba326a612c81cfca5","593f83c1a326a612c81cfca3","5a5d9641ff615e83c6001f56"];function clickQuery(){var nodes=document.querySelectorAll("button, a, [role='button']");for(var i=0;i<nodes.length;i++){if((nodes[i].textContent||'').trim()==='查詢'){nodes[i].click();return true;}}var all=document.querySelectorAll('*');for(var j=0;j<all.length;j++){var el=all[j];if(el.children.length===0&&(el.textContent||'').trim()==='查詢'){(el.closest("button, a, [role='button']")||el).click();return true;}}return false;}if(!window.__authWatch7){window.__authWatch7=true;window.__auth7=null;window.__waiters7=[];function got(v){if(!v||window.__auth7===v)return;window.__auth7=v;var ws=window.__waiters7;window.__waiters7=[];ws.forEach(function(fn){fn(v);});}var oSet=XMLHttpRequest.prototype.setRequestHeader;XMLHttpRequest.prototype.setRequestHeader=function(k,v){if(/^authorization$/i.test(k))got(v);return oSet.apply(this,arguments);};var oFetch=window.fetch;window.fetch=function(input,init){try{var h=init&&init.headers,v=null;if(h){if(typeof Headers!=='undefined'&&h instanceof Headers){v=h.get('authorization')||h.get('Authorization');}else if(Array.isArray(h)){h.forEach(function(p){if(/^authorization$/i.test(p[0]))v=p[1];});}else{for(var k in h){if(/^authorization$/i.test(k))v=h[k];}}}if(v)got(v);}catch(e){}return oFetch.apply(this,arguments);};}function waitAuth(ms){return new Promise(function(resolve,reject){if(window.__auth7)return resolve(window.__auth7);var done=false;var to=setTimeout(function(){if(done)return;done=true;window.__waiters7=(window.__waiters7||[]).filter(function(f){return f!==onGot;});reject(new Error('timeout'));},ms);function onGot(v){if(done)return;done=true;clearTimeout(to);resolve(v);}window.__waiters7=window.__waiters7||[];window.__waiters7.push(onGot);});}function show(lines){var old=document.getElementById('__p7box__');if(old)old.parentNode.removeChild(old);var d=document.createElement('textarea');d.id='__p7box__';d.value=lines.join('\n');d.style.cssText='position:fixed;right:10px;bottom:10px;z-index:2147483647;width:640px;max-width:92vw;height:460px;background:#0e141a;color:#cfe0ee;font:11.5px/1.5 monospace;padding:10px;border:2px solid #3a4a5a;border-radius:5px;box-shadow:0 8px 30px rgba(0,0,0,.6)';d.title='雙擊可關閉';d.ondblclick=function(){d.parentNode.removeChild(d);};document.body.appendChild(d);d.select();}function callBoth(auth){var L=['=== 單位狀態 API 直接查詢 ===',''];var reqs=[{name:'shift-status/list (GET)',url:'https://ttfd2.firemis.tw/api/v2/shift-status/list',opt:{method:'GET',headers:{Authorization:auth}}},{name:'shift-status/list (POST+depts)',url:'https://ttfd2.firemis.tw/api/v2/shift-status/list',opt:{method:'POST',headers:{Authorization:auth,'Content-Type':'application/json'},body:JSON.stringify({depts:DEPTS})}},{name:'shift-record/list (GET)',url:'https://ttfd2.firemis.tw/api/v2/shift-record/list',opt:{method:'GET',headers:{Authorization:auth}}},{name:'shift-record/list (POST+depts)',url:'https://ttfd2.firemis.tw/api/v2/shift-record/list',opt:{method:'POST',headers:{Authorization:auth,'Content-Type':'application/json'},body:JSON.stringify({depts:DEPTS,limit:20})}}];Promise.all(reqs.map(function(r){return fetch(r.url,r.opt).then(function(res){return res.text().then(function(t){return{name:r.name,status:res.status,body:R(t)};});}).catch(function(e){return{name:r.name,status:'ERR',body:e.message};});})).then(function(results){results.forEach(function(x){L.push('['+x.name+'] status='+x.status);L.push('  '+x.body);L.push('');});show(L);});}var clicked=clickQuery();if(!window.__auth7){show(['已'+(clicked?'自動點擊查詢':'嘗試點擊查詢但找不到按鈕')+'，正在等待授權…','若卡在這裡，請手動點一下頁面上的「查詢」，再點一次書籤。']);}waitAuth(15000).then(function(auth){callBoth(auth);}).catch(function(){show(['尚未取得授權。','請確認已登入、停在勤務表列表頁，手動按一次「查詢」後再點一次書籤。']);});})()
+─── 複製到這裡 ───

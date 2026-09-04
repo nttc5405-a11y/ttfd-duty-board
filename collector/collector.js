@@ -304,6 +304,28 @@
 
   /* ---------- 主流程 ---------- */
 
+  // 把 shift-status/list 的回應整理成看板要用的「即時出勤」格式。
+  // 只留不在隊、且不是請假的人（請假已經在「今日未到勤」顯示過了，
+  // 這裡只留真的在外出勤/外出的即時狀態）。刻意只挑這幾欄，原始回應
+  // 裡的內部 ID、系統雜項欄位一律不帶出去。
+  function buildOutStatus(statusList, deptToName) {
+    var out = [];
+    (statusList || []).forEach(function (u) {
+      var unitName = deptToName[u.dept] || u.dept;
+      (u.outDeptUsers || []).forEach(function (p) {
+        if (p.leave === true) return;
+        out.push({
+          unit: unitName,
+          name: p.name || p.no || "",
+          reason: p.recordKind || "",
+          car: (p.recordCalls || []).join("、"),
+          since: p.statusAt || ""
+        });
+      });
+    });
+    return out;
+  }
+
   function collect(auth, cfg, quiet) {
     if (!quiet) say("向系統查詢勤務表列表…");
 
@@ -319,6 +341,7 @@
     };
 
     var names = nameMap();
+    var deptToName = {};
 
     return api("POST", "/api/v2/shift/list", body, auth)
       .then(function (list) {
@@ -332,6 +355,7 @@
                 var mg = row.manager || {};
                 var mgrText = (mg.kind || "") + (mg.name || "");
                 var nm = names[mgrText] || ("單位…" + String(row.dept).slice(-6));
+                deptToName[row.dept] = nm;
                 units.push(transform(row, d, nm));
                 tasks = tasks.concat(tasksOf(d, nm));
                 if (!quiet) say("  " + nm + "　日 " + row.day + " ／ 夜 " + row.night);
@@ -341,8 +365,23 @@
               });
           });
         }, Promise.resolve()).then(function () {
-          return { date: today, collectedAt: new Date().toISOString(), units: units, tasks: tasks };
+          return { date: today, collectedAt: new Date().toISOString(), units: units, tasks: tasks, outStatus: [] };
         });
+      })
+      .then(function (payload) {
+        // 即時出勤狀態是加分項目，查不到也不該讓整次採集失敗。
+        return api("POST", "/api/v2/shift-status/list", { depts: DEPTS }, auth)
+          .then(function (statusList) {
+            payload.outStatus = buildOutStatus(statusList, deptToName);
+            if (!quiet && payload.outStatus.length) {
+              say("  即時出勤 " + payload.outStatus.length + " 人");
+            }
+            return payload;
+          })
+          .catch(function (e) {
+            if (!quiet) say("  即時出勤狀態查詢失敗（不影響其餘資料）：" + e.message, "#F2A93B");
+            return payload;
+          });
       })
       .then(function (payload) {
         if (!payload.units.length) throw new Error("沒有取得任何單位資料");
