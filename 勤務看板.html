@@ -460,6 +460,24 @@ body{
 .ev-tag.t2{background:rgba(155,140,216,.13);color:var(--violet)}
 .ev-tag.t3{background:rgba(61,190,107,.13);color:var(--green)}
 .ev-loc{font-size:clamp(9.5px,.72vw,11.5px);color:var(--ink-3);margin-top:2px}
+.ev-link{
+  display:inline-block;
+  font-size:clamp(9.5px,.72vw,11.5px);
+  color:var(--blue);
+  margin-top:4px;margin-left:8px;
+  text-decoration:none;
+}
+.ev-link:hover{text-decoration:underline}
+.ev-link:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.cal-toggle{
+  display:flex;align-items:center;gap:6px;
+  padding:9px 0 3px;
+  font-size:clamp(10.5px,.8vw,13px);
+  color:var(--ink-2);
+  cursor:pointer;user-select:none;
+}
+.cal-toggle:hover{color:var(--ink)}
+.cal-toggle .arrow{font-size:.8em;color:var(--ink-3)}
 .ev.now{
   background:rgba(228,57,43,.07);
   margin-inline:-6px;padding-inline:6px;
@@ -745,60 +763,126 @@ try{
   // 空陣列＝橫幅不顯示，等採集器送來真實資料才會出現。
   var OUT_STATUS=[];
 
-  // Google 行事曆真實資料（2026-09-03 取得）
-  // 靜態快照（2026-09-04 由 Google 行事曆取得，涵蓋至 9/18）。
-  // 這不是即時連線——見下方 renderCal() 前的說明。
+  // Google 行事曆真實資料（2026-09-04 重新完整查詢 3 個來源日曆取得，
+  // 涵蓋至 9/20）。每筆都是真的查到的行程，標題視需要精簡掉內部聯絡人
+  // 電話、Email 等資訊，但事件本身不是編的；link 是該筆在 Google
+  // 行事曆的原始網址，供「查看完整內容」使用。
+  // 這仍不是即時連線——見下方 renderCal() 前的說明，快照用完一樣需要
+  // 重新查詢。
   var CAL=[
     {d:"2026-09-04",items:[
-      {t:"09:30–12:00",title:"擴大消防業務會報",cal:"局本部",tag:"t2",loc:"中央災害應變中心"}
+      {t:"09:30–12:00",title:"召開 115 年第 3 次擴大消防業務會報",cal:"局本部",tag:"t2",
+       loc:"中央災害應變中心首長決策室",
+       link:"https://www.google.com/calendar/event?eid=MzY4cjhpM29qa281dmlxMXJ0NGJyNmN2ajggc2luNnRqdmE1bGs2bmkxcTUxczdzODc3ZWtAZw"}
     ]},
     {d:"2026-09-05",items:[
-      {allday:true,title:"職業安全健康諮詢服務",cal:"大隊",tag:"t1"}
+      {allday:true,title:"職安－職醫駐點諮詢服務（台東大隊）",cal:"大隊",tag:"t1",
+       link:"https://www.google.com/calendar/event?eid=MnZ0ODhrZmo1Y2lvODYwcnNrNDRyamtxdnIgdHRmZDAwN0Blb2MudHRmZC5nb3YudHc"}
     ]},
     {d:"2026-09-06",items:[
-      {t:"09:00–10:00",title:"縣長之父公祭（家奠8時／公奠9時）",cal:"局本部",tag:"t2",loc:"追遠廳"}
+      {t:"09:00–10:00",title:"縣長之父公祭（家奠 8 時／公奠 9 時）",cal:"局本部",tag:"t2",loc:"追遠廳",
+       link:"https://www.google.com/calendar/event?eid=NnU5MWVzZzMxaG5vbXJxN2g3YnVxbXR2cG8gc2luNnRqdmE1bGs2bmkxcTUxczdzODc3ZWtAZw"}
     ]},
     {d:"2026-09-07",items:[
-      {t:"10:00–12:00",title:"國家防災日大規模震災救災動員演練",cal:"大隊",tag:"t1",loc:"線上參與"}
+      {t:"10:00–12:00",title:"「115 年國家防災日大規模震災救災動員演練」模擬開設演練",cal:"大隊",tag:"t1",
+       link:"https://www.google.com/calendar/event?eid=MmxxNW5nZWFhajdudDZnNm52MjM5amR1aGwgdHRmZDAwN0Blb2MudHRmZC5nb3YudHc"}
     ]},
     {d:"2026-09-08",items:[
-      {t:"09:00–12:00",title:"應變管理資訊系統（EMIC2.0）演練",cal:"局本部",tag:"t2"},
-      {t:"14:30–15:30",title:"防災教育警覺館複驗",cal:"局本部",tag:"t2"}
+      {t:"09:00–12:00",title:"「115 年應變管理資訊系統（EMIC2.0）演練計畫」",cal:"局本部",tag:"t2",
+       link:"https://www.google.com/calendar/event?eid=MDJ0M2VrYTVmY3BlanRqbzFuZXRjazBjc3Ygc2luNnRqdmE1bGs2bmkxcTUxczdzODc3ZWtAZw"},
+      {t:"14:30–15:30",title:"防災教育警覺館複驗",cal:"局本部",tag:"t2",loc:"防災教育警覺館",
+       link:"https://www.google.com/calendar/event?eid=NXNqdGtmZzFqMzAycXFsazdsbjcyc3ZsY2kgc2luNnRqdmE1bGs2bmkxcTUxczdzODc3ZWtAZw"}
     ]},
     {d:"2026-09-09",items:[
-      {t:"10:00–11:30",title:"森林防火座談會",cal:"大隊",tag:"t1",loc:"忠智里活動中心"},
-      {t:"14:30–15:30",title:"人事甄審會議",cal:"局本部",tag:"t2",loc:"3 樓會議室"}
+      {t:"10:00–11:30",title:"115 年森林防火座談會",cal:"大隊",tag:"t1",loc:"忠智里活動中心",
+       link:"https://www.google.com/calendar/event?eid=ZTkxcjAwNDBjbHJicmFlOWUyYXI2YWNkNm8gdHRmZDAwN0Blb2MudHRmZC5nb3YudHc"},
+      {t:"14:30–15:30",title:"考績暨甄審委員會",cal:"局本部",tag:"t2",loc:"本局 3 樓會議室",
+       link:"https://www.google.com/calendar/event?eid=amtqNW5uajhhcTMwN2Q1cmk1dGJjZ3ZxYzQgc2luNnRqdmE1bGs2bmkxcTUxczdzODc3ZWtAZw"}
     ]},
     {d:"2026-09-10",items:[
-      {t:"08:00–09:00",title:"檢查各單位每週發電機發動照片及影片",cal:"大隊",tag:"t1"},
-      {t:"09:00–10:00",title:"週報（暫停一次）",cal:"大隊",tag:"t1"},
-      {t:"14:30–16:30",title:"主管會報暨縣務會議",cal:"局本部",tag:"t2",loc:"縣府 A 會議室"},
-      {t:"18:00–20:00",title:"（暫定）警消與議員聯誼會餐敘",cal:"局本部",tag:"t2",loc:"丸八餐廳"}
+      {t:"08:00–09:00",title:"檢查各單位每週發電機發動照片及影片",cal:"大隊",tag:"t1",
+       link:"https://www.google.com/calendar/event?eid=ODl0Y3BvdjhyaGlhMWJ0cTRjNHJ0Mm90bDNfMjAyNjA5MTBUMDAwMDAwWiB0dGZkMDA3QGVvYy50dGZkLmdvdi50dw"},
+      {t:"09:00–10:00",title:"週報（鈞長指示暫停 1 次）",cal:"大隊",tag:"t1",
+       link:"https://www.google.com/calendar/event?eid=NDhlZ3M5bmc5Y25mODg4ZW9kZGxxcGE3bmdfMjAyNjA5MTBUMDEwMDAwWiB0dGZkMDA3QGVvYy50dGZkLmdvdi50dw"},
+      {t:"09:00–10:00",title:"週報（暫停一次）",cal:"局本部",tag:"t2",
+       link:"https://www.google.com/calendar/event?eid=Njg5OXY1MGRoaWQ5YWIzaDdnYWI2c3E0amUgc2luNnRqdmE1bGs2bmkxcTUxczdzODc3ZWtAZw"},
+      {t:"14:30–16:30",title:"年度第 14 次主管會報暨縣務會議",cal:"局本部",tag:"t2",loc:"縣府 A 會議室",
+       link:"https://www.google.com/calendar/event?eid=NmhkaHJmdjUyZGozc2w1dDdrZDVrMzBtM2wgdHRmZDAwN0Blb2MudHRmZC5nb3YudHc"},
+      {t:"14:30–16:30",title:"第 17 次 LPMO 專安會議暨安全防護小組會議",cal:"局本部",tag:"t2",loc:"四樓應變中心",
+       link:"https://www.google.com/calendar/event?eid=MWEyY2Q4cmNrYnIwMDRiN29qbnZlMjl1azUgc2luNnRqdmE1bGs2bmkxcTUxczdzODc3ZWtAZw"},
+      {t:"18:00–20:00",title:"（暫定）警消與議員聯誼會餐敘",cal:"大隊",tag:"t1",loc:"丸八餐廳",
+       link:"https://www.google.com/calendar/event?eid=bTUxc2RtZnRvc21hZ3E1aHRidjNsdWhyaW8gdHRmZDAwN0Blb2MudHRmZC5nb3YudHc"},
+      {t:"18:00–20:00",title:"警消與議員聯誼會餐敘（確定）",cal:"局本部",tag:"t2",loc:"丸八餐廳",
+       link:"https://www.google.com/calendar/event?eid=MHEzcTBlNjl2YjFuaWFvN2dubGVicGQ1Y3Mgc2luNnRqdmE1bGs2bmkxcTUxczdzODc3ZWtAZw"}
     ]},
     {d:"2026-09-11",items:[
-      {t:"10:00–11:00",title:"電視牆及救災救護指揮派遣台建置案驗收",cal:"局本部",tag:"t2"},
-      {t:"16:30–17:30",title:"全國義勇消防總隊聯繫會報",cal:"義消",tag:"t3",loc:"台北一郎宴會館"}
+      {t:"10:00–11:00",title:"「115 年度災情資訊電視牆及救災救護指揮派遣台建置」財物採購案驗收",cal:"局本部",tag:"t2",
+       link:"https://www.google.com/calendar/event?eid=NnBrOWVuNGJvZ2Q0ZGpxbTZwcGZxNHJsOTEgc2luNnRqdmE1bGs2bmkxcTUxczdzODc3ZWtAZw"},
+      {t:"16:30–17:30",title:"115 年下半年度全國義勇消防總隊總隊長副總隊長及總幹事聯繫會報",cal:"義消",tag:"t3",
+       loc:"一郎宴會館（台北）",
+       link:"https://www.google.com/calendar/event?eid=NmZlM3V1dHFzMGl2aTlpa2R0aHBjMW5pY2IgMnU3amQzczl1cGIyNzA5MnI0dWhlNjlxMGNAZw"}
     ]},
     {d:"2026-09-14",items:[
-      {t:"18:00–20:00",title:"池上救災、防宣義消中秋活動",cal:"義消",tag:"t3",loc:"豐華餐館"}
+      {t:"18:00–20:00",title:"池上救災、防宣義消中秋活動",cal:"義消",tag:"t3",loc:"豐華餐館",
+       link:"https://www.google.com/calendar/event?eid=N3M2dGIxa3IxNWEzMGtlZDBidW01N2d1Z2ogMnU3amQzczl1cGIyNzA5MnI0dWhlNjlxMGNAZw"}
     ]},
     {d:"2026-09-15",items:[
-      {allday:true,title:"林保署會議",cal:"大隊",tag:"t1"}
+      {allday:true,title:"林保署會議 302303",cal:"大隊",tag:"t1",
+       link:"https://www.google.com/calendar/event?eid=bmE3ampoczBkdmx0YzhxOTk2YmhyZWtyMTAgdHRmZDAwN0Blb2MudHRmZC5nb3YudHc"}
     ]},
     {d:"2026-09-16",items:[
-      {allday:true,title:"強韌台灣 921 大規模災害防救演練（暫訂 9/16–9/18）",cal:"局本部",tag:"t2",loc:"關山縱谷線"},
-      {allday:true,title:"921 國家防災日，預計 17 個外縣市隊伍",cal:"大隊",tag:"t1"}
+      {allday:true,title:"（暫訂 9/16–9/18）115 年強韌台灣 921 大規模災害防救災演練",cal:"局本部",tag:"t2",
+       loc:"關山縱谷線",
+       link:"https://www.google.com/calendar/event?eid=MjY4ajVpam5yZzE2MjgwcmVlMDVnN2VwM2cgc2luNnRqdmE1bGs2bmkxcTUxczdzODc3ZWtAZw"},
+      {allday:true,title:"921 國家防災日，預計 17 個外縣市隊伍",cal:"大隊",tag:"t1",
+       link:"https://www.google.com/calendar/event?eid=MXM4cGdmZjJmOXQ2Yzkwb3IzYWFtdmQ1Y28gdHRmZDAwN0Blb2MudHRmZC5nb3YudHc"}
     ]},
     {d:"2026-09-17",items:[
-      {t:"09:00–10:00",title:"週報",cal:"局本部",tag:"t2"},
-      {t:"09:00–10:00",title:"週報",cal:"大隊",tag:"t1"},
-      {allday:true,title:"（時間待定）協助中科院至發射場地灑水",cal:"大隊",tag:"t1"}
+      {allday:true,title:"（時間待定）協助中科院至發射場地灑水",cal:"大隊",tag:"t1",
+       link:"https://www.google.com/calendar/event?eid=NGZnYzloaTUyZ3FybGFybWJicmR1ZnE0Z3YgdHRmZDAwN0Blb2MudHRmZC5nb3YudHc"},
+      {t:"09:00–10:00",title:"週報",cal:"大隊",tag:"t1",
+       link:"https://www.google.com/calendar/event?eid=NDhlZ3M5bmc5Y25mODg4ZW9kZGxxcGE3bmdfMjAyNjA5MTdUMDEwMDAwWiB0dGZkMDA3QGVvYy50dGZkLmdvdi50dw"},
+      {t:"09:00–10:00",title:"週報",cal:"局本部",tag:"t2",loc:"三樓會議室",
+       link:"https://www.google.com/calendar/event?eid=NnVoN25uaTE0NWY4bTczanVvcnAzaXZpb3JfMjAyNjA5MTdUMDEwMDAwWiBzaW42dGp2YTVsazZuaTFxNTFzN3M4Nzdla0Bn"}
     ]},
     {d:"2026-09-18",items:[
-      {t:"05:30–06:30",title:"中科院飛彈發射時間",cal:"大隊",tag:"t1"},
-      {t:"08:30–09:30",title:"大隊勤教",cal:"大隊",tag:"t1",loc:"成功大隊 2 樓會議室"},
-      {t:"10:30–11:30",title:"火搶演練",cal:"大隊",tag:"t1"},
-      {t:"18:00–20:00",title:"中秋科室聯誼餐會",cal:"局本部",tag:"t2",loc:"阿哩岸"}
+      {t:"05:30–06:30",title:"中科院飛彈發射時間",cal:"大隊",tag:"t1",
+       link:"https://www.google.com/calendar/event?eid=MzAyYWw0bzYxNmRyaDE3MGo0NWltY21hc2kgdHRmZDAwN0Blb2MudHRmZC5nb3YudHc"},
+      {t:"08:30–09:30",title:"大隊勤教",cal:"大隊",tag:"t1",loc:"成功大隊 2 樓會議室",
+       link:"https://www.google.com/calendar/event?eid=NTF1c3RxOXZtaWYxbWM3a2Zpc29zNGxmc3NfMjAyNjA5MThUMDAzMDAwWiB0dGZkMDA3QGVvYy50dGZkLmdvdi50dw"},
+      {t:"10:30–11:30",title:"火搶演練",cal:"大隊",tag:"t1",
+       link:"https://www.google.com/calendar/event?eid=N2E1aDdya2JpdTc5MWp0ZHZjaWhrMzIyN2FfMjAyNjA5MThUMDIzMDAwWiB0dGZkMDA3QGVvYy50dGZkLmdvdi50dw"},
+      {allday:true,title:"消防署與外交部辦理「世界災害管理聯盟（WADM）暨災害防救學院國際研討會（IDEA）」聯合晚宴",
+       cal:"局本部",tag:"t2",loc:"君悅酒店 3 樓凱悅廳",
+       link:"https://www.google.com/calendar/event?eid=N241MzJhZDNwdGgzcjA4dm03NTd1ZTdxOHQgc2luNnRqdmE1bGs2bmkxcTUxczdzODc3ZWtAZw"},
+      {t:"18:00–20:00",title:"中秋科室聯誼餐會",cal:"局本部",tag:"t2",loc:"阿哩岸",
+       link:"https://www.google.com/calendar/event?eid=MmRoMmxxZXYydHY1bm03dHFjMXZlN3Y5aDYgc2luNnRqdmE1bGs2bmkxcTUxczdzODc3ZWtAZw"}
+    ]},
+    {d:"2026-09-19",items:[
+      {t:"16:30–18:00",title:"青商會中秋節活動",cal:"義消",tag:"t3",loc:"馬蘭部落文化廣場",
+       link:"https://www.google.com/calendar/event?eid=NzlnOW9zZjBoYm9saGdrNnEzMXFyY2ltbm0gMnU3amQzczl1cGIyNzA5MnI0dWhlNjlxMGNAZw"},
+      {t:"18:00–20:00",title:"大溪義消中秋節防火（災）宣導活動",cal:"義消",tag:"t3",loc:"大溪分隊車庫",
+       link:"https://www.google.com/calendar/event?eid=MzcyNjhkZjV1c3JodW12dHZwcHRlaGI2a3EgMnU3amQzczl1cGIyNzA5MnI0dWhlNjlxMGNAZw"},
+      {t:"18:00–20:00",title:"豐田義消中秋晚會活動",cal:"義消",tag:"t3",loc:"分隊車庫",
+       link:"https://www.google.com/calendar/event?eid=M2F0djVzNHIza2t2azAzdmtsZW5iZmg5c28gMnU3amQzczl1cGIyNzA5MnI0dWhlNjlxMGNAZw"},
+      {t:"18:00–20:00",title:"都蘭及東河義消友隊義消來訪餐會",cal:"義消",tag:"t3",loc:"都蘭分隊車庫",
+       link:"https://www.google.com/calendar/event?eid=N2V1NTBiODQ0OTlxcHNkY3UzY3ZtNzhjbnMgMnU3amQzczl1cGIyNzA5MnI0dWhlNjlxMGNAZw"},
+      {t:"18:30–20:30",title:"臺東大隊（特搜、救護、南王）中秋聯歡烤肉晚會",cal:"義消",tag:"t3",loc:"消防局後方廣場",
+       link:"https://www.google.com/calendar/event?eid=M3ZoOWtmbzNmOGIzcDhka3NqZXBpOGkyaWEgMnU3amQzczl1cGIyNzA5MnI0dWhlNjlxMGNAZw"}
+    ]},
+    {d:"2026-09-20",items:[
+      {allday:true,title:"檢查救災救護車輛達每月 20 公里",cal:"大隊",tag:"t1",
+       link:"https://www.google.com/calendar/event?eid=MTRnazF2cTNub3NldDduaHRxampodm9wZDBfMjAyNjA5MjAgdHRmZDAwN0Blb2MudHRmZC5nb3YudHc"},
+      {t:"08:00–17:00",title:"（304）至都蘭分隊擔任車禍救助教官",cal:"大隊",tag:"t1",
+       link:"https://www.google.com/calendar/event?eid=NWxlbWpxM2tuNTZqb2lxcHV2NHRhbW8zMWwgdHRmZDAwN0Blb2MudHRmZC5nb3YudHc"},
+      {t:"18:00–20:00",title:"台東義消分隊中秋義消定訓暨座談會",cal:"局本部",tag:"t2",loc:"台東分隊車庫",
+       link:"https://www.google.com/calendar/event?eid=N2Y5dXN1YW03dm1rN2FkN2U0MnVrM2V2aHIgc2luNnRqdmE1bGs2bmkxcTUxczdzODc3ZWtAZw"},
+      {t:"18:00–20:00",title:"台東義消分隊中秋義消定訓暨座談會",cal:"義消",tag:"t3",loc:"台東分隊車庫",
+       link:"https://www.google.com/calendar/event?eid=MnE0cjNzbDdubXZ0M3U4cTI1NGc2MXI1NmEgMnU3amQzczl1cGIyNzA5MnI0dWhlNjlxMGNAZw"},
+      {t:"18:30–20:30",title:"知本義消中秋防災聯合宣導活動",cal:"義消",tag:"t3",loc:"台東知本代天府",
+       link:"https://www.google.com/calendar/event?eid=MDM0OW12NWZkYmJjaGgzOG0wc2p1OGdxNnMgMnU3amQzczl1cGIyNzA5MnI0dWhlNjlxMGNAZw"},
+      {t:"18:30–20:30",title:"金峰義消中秋烤肉晚會",cal:"義消",tag:"t3",loc:"分隊車庫",
+       link:"https://www.google.com/calendar/event?eid=NDBqcnJhdWN0bHM3MWJoMjRwNDZzM3B2dmIgMnU3amQzczl1cGIyNzA5MnI0dWhlNjlxMGNAZw"}
     ]}
   ];
 
@@ -1140,18 +1224,22 @@ try{
      自動更新，需要在伺服器那端另外接 Google 行事曆的正式介面，這是比較
      大的工程，目前尚未實作。這裡先做到位的是：已經過去的日期會自動從
      畫面移除，不會像之前那樣一直卡在舊日期。 */
+  var CAL_NEAR_DAYS=5;
+  var calMoreOpen=false;
+
   function renderCal(now){
     var host=document.getElementById("calbody");
     if(!host) return;
     var todayKey=now.getFullYear()+"-"+p2(now.getMonth()+1)+"-"+p2(now.getDate());
     var nowMin=now.getHours()*60+now.getMinutes();
-    var html="";
     var upcoming=CAL.filter(function(day){ return day.d>=todayKey; });
 
     if(!upcoming.length){
       host.innerHTML='<div class="cal-empty">行事曆快照已用完，需要重新抓取最新行程。</div>';
       return;
     }
+
+    var dayBlocks=[];
 
     upcoming.forEach(function(day){
       var pt=day.d.split("-");
@@ -1164,7 +1252,7 @@ try{
       // 避免跟「真的沒行程」混淆。
       if(day.items.length&&!items.length) return;
 
-      html+='<div class="cal-day"><div class="cal-daylabel">';
+      var html='<div class="cal-day"><div class="cal-daylabel">';
       html+='<span class="cal-date">'+(+pt[1])+"/"+(+pt[2])+"</span>";
       html+='<span class="cal-dow">'+DOW[dt.getDay()]+"</span>";
       if(isToday) html+='<span class="cal-today">今日</span>';
@@ -1186,11 +1274,36 @@ try{
         html+='<span class="ev-main"><span class="ev-title">'+esc(ev.title)+"</span>";
         if(ev.loc) html+='<div class="ev-loc">'+esc(ev.loc)+"</div>";
         html+='<span class="ev-tag '+ev.tag+'">'+esc(ev.cal)+"</span>";
+        if(ev.link) html+='<a class="ev-link" href="'+esc(ev.link)+'" target="_blank" rel="noopener">查看完整內容 ↗</a>';
         html+="</span></div>";
       });
       html+="</div>";
+      dayBlocks.push(html);
     });
-    host.innerHTML=html||'<div class="cal-empty">所選的行事曆來源近期無行程</div>';
+
+    if(!dayBlocks.length){
+      host.innerHTML='<div class="cal-empty">所選的行事曆來源近期無行程</div>';
+      return;
+    }
+
+    var nearHtml=dayBlocks.slice(0,CAL_NEAR_DAYS).join("");
+    var laterBlocks=dayBlocks.slice(CAL_NEAR_DAYS);
+
+    var out=nearHtml;
+    if(laterBlocks.length){
+      out+='<div class="cal-toggle" id="calToggle">'+
+           '<span class="arrow">'+(calMoreOpen?"▾":"▸")+"</span>"+
+           (calMoreOpen?"收合":"顯示")+"更多 "+laterBlocks.length+" 天</div>";
+      if(calMoreOpen) out+=laterBlocks.join("");
+    }
+
+    host.innerHTML=out;
+
+    var toggle=document.getElementById("calToggle");
+    if(toggle) toggle.onclick=function(){
+      calMoreOpen=!calMoreOpen;
+      renderCal(new Date());
+    };
   }
 
   var lastKey=null, lastMin=-1;
