@@ -19,17 +19,40 @@ const ical = require("node-ical");
 
 const WINDOW_DAYS = 45; // 只保留從今天起算 45 天內的行程，避免無限累積
 
+// 台灣全年沒有日光節約時間，UTC+8 是固定值。
+// 重點：不能用 Date 的 getHours()/getFullYear() 這類「本地時間」方法——
+// 那些方法回傳的是「執行這段程式碼的伺服器系統時區」的本地時間，
+// Render 的伺服器系統時區是 UTC，不是台北，直接用會少 8 小時
+//（實測發生過：10:00 的會議顯示成 02:00）。
+// 正解：把時間戳加上固定的 8 小時偏移，再用 getUTC*() 系列方法讀取——
+// 那些方法永遠回傳 UTC 值，不受伺服器系統時區設定影響，用「已經加過
+// 8 小時的時間戳」去讀 UTC 值，效果就等於讀到了台北的本地時間。
+const TAIPEI_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+function taipei(d) {
+  return new Date(d.getTime() + TAIPEI_OFFSET_MS);
+}
+
 function p2(n) {
   return n < 10 ? "0" + n : "" + n;
 }
 
 function dateKey(d) {
-  return d.getFullYear() + "-" + p2(d.getMonth() + 1) + "-" + p2(d.getDate());
+  var t = taipei(d);
+  return t.getUTCFullYear() + "-" + p2(t.getUTCMonth() + 1) + "-" + p2(t.getUTCDate());
 }
 
 function timeRange(start, end) {
-  return p2(start.getHours()) + ":" + p2(start.getMinutes()) + "–" +
-         p2(end.getHours()) + ":" + p2(end.getMinutes());
+  var s = taipei(start), e = taipei(end);
+  return p2(s.getUTCHours()) + ":" + p2(s.getUTCMinutes()) + "–" +
+         p2(e.getUTCHours()) + ":" + p2(e.getUTCMinutes());
+}
+
+// 回傳「d 這個時刻換算成台北時間後，那一天台北午夜 0 時」對應的
+// 真實 UTC 時間點（同樣不依賴伺服器系統時區）。
+function taipeiMidnightUTC(d) {
+  var t = taipei(d);
+  return new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate()) - TAIPEI_OFFSET_MS);
 }
 
 function isAllDay(ev) {
@@ -69,7 +92,7 @@ async function fetchOneSource(src) {
   var calendarId = calendarIdFromUrl(src.url);
 
   var now = new Date();
-  var rangeStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  var rangeStart = taipeiMidnightUTC(now);
   var rangeEnd = new Date(rangeStart.getTime() + WINDOW_DAYS * 86400000);
 
   // 重複事件的「例外場次」（單一場次被改期或取消）另外記下來，
