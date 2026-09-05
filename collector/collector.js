@@ -58,7 +58,7 @@
     head.style.cssText =
       "display:flex;align-items:center;gap:8px;padding:9px 12px;background:#1b2530;" +
       "border-bottom:1px solid #3a4a5a;font-weight:700";
-    head.appendChild(document.createTextNode("勤務看板採集器 v9"));
+    head.appendChild(document.createTextNode("勤務看板採集器 v10"));
 
     var stop = document.createElement("button");
     stop.textContent = "停止並關閉";
@@ -356,6 +356,10 @@
   // 只留不在隊、且不是請假的人（請假已經在「今日未到勤」顯示過了，
   // 這裡只留真的在外出勤/外出的即時狀態）。刻意只挑這幾欄，原始回應
   // 裡的內部 ID、系統雜項欄位一律不帶出去。
+  // unit 這個名稱是「這個分頁當下算出來的」，可能因為前面提到的各種
+  // 時序問題而不準；額外帶上原始 dept ID，讓伺服器可以用它手上最新、
+  // 最完整的單位對照表重新校正一次，不管是哪個分頁、哪個時間點送來的
+  // 都一樣準——不能只靠「客戶端這次剛好算對」。
   function buildOutStatus(statusList, deptToName) {
     var out = [];
     (statusList || []).forEach(function (u) {
@@ -364,6 +368,7 @@
         if (p.leave === true) return;
         out.push({
           unit: unitName,
+          dept: u.dept,
           name: p.name || p.no || "",
           reason: p.recordKind || "",
           car: (p.recordCalls || []).join("、"),

@@ -167,6 +167,28 @@ app.post("/api/push", (req, res) => {
   return res.status(400).json({ ok: false, error: "資料格式不符：需要 units（完整）或 outStatus（快速）" });
 });
 
+/* ---------- 即時出勤的單位名稱，每次供應資料時都重新校正 ----------
+   即時出勤是「快速推送」，可能來自任何一個還開著的採集器分頁；如果
+   那個分頁剛好在單位名稱還沒讀穩定時就送出（例如自動模式的時序
+   問題，或單純是舊版分頁還沒關），送來的 unit 欄位可能是代碼而不是
+   真正的名稱。完整推送的 units 陣列纔是最新、最完整的權威對照表，
+   所以每次供應資料時都拿 units 重新校正一次 outStatus 的 unit 欄位，
+   不管是哪個分頁、哪個時間點送來的都一樣準，也能立即修正已經存在
+   （在這次修正部署前收到）的錯誤資料，不用等下一次推送。 */
+function resolveOutStatusNames(units, outStatus) {
+  if (!Array.isArray(outStatus) || !outStatus.length) return outStatus;
+  var byDept = {};
+  (units || []).forEach(function (u) {
+    if (u && u.deptId) byDept[u.deptId] = u.name;
+  });
+  return outStatus.map(function (o) {
+    if (o && o.dept && byDept[o.dept]) {
+      return Object.assign({}, o, { unit: byDept[o.dept] });
+    }
+    return o;
+  });
+}
+
 /* ---------- 給資料 ---------- */
 app.get("/api/duty", (req, res) => {
   if (!latest) {
@@ -179,6 +201,7 @@ app.get("/api/duty", (req, res) => {
   // 行事曆是伺服器自己排程抓的，跟採集器推送的資料分開維護，
   // 這裡合併成同一份回應，看板端只要讀一個地方就好。
   var data = Object.assign({}, latest.data);
+  data.outStatus = resolveOutStatusNames(data.units, data.outStatus);
   if (calCache) {
     data.cal = calCache.days;
     data.calFetchedAt = calCache.fetchedAt;
