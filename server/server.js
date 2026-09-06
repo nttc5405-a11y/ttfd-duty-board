@@ -9,6 +9,8 @@
 
    3. 定時讀 Google 行事曆：伺服器每隔一段時間自己去讀 iCal 訂閱網址
       （不需要登入、不需要人操作），整理好跟其餘資料一起供應出去。
+      不想等自動排程的話，開 /api/cal-refresh?token=PUSH_TOKEN
+      可以立刻手動觸發一次。
 
    環境變數（在 Render 的 Environment 設定）：
      PUSH_TOKEN       必填。採集器送資料時要帶的通行碼，自己取一串亂碼。
@@ -67,8 +69,8 @@ const CAL_POLL_MS = 12 * 60 * 60 * 1000; // 12 小時
 let calCache = null; // { days, fetchedAt }
 
 function refreshCalendar() {
-  if (!CAL_SOURCES.length || !fetchAllCalendars) return;
-  fetchAllCalendars(CAL_SOURCES)
+  if (!CAL_SOURCES.length || !fetchAllCalendars) return Promise.resolve();
+  return fetchAllCalendars(CAL_SOURCES)
     .then((result) => {
       calCache = { days: result.days, fetchedAt: result.fetchedAt };
       var msg = "[cal] 已更新，共 " + result.days.length + " 天有行程";
@@ -207,6 +209,35 @@ app.get("/api/duty", (req, res) => {
     data.calFetchedAt = calCache.fetchedAt;
   }
   res.json({ ok: true, receivedAt: latest.receivedAt, data: data });
+});
+
+/* ---------- 手動觸發行事曆重新讀取 ----------
+   平常靠 CAL_POLL_MS（12 小時）自動排程就好；但剛新增／改了行程、
+   不想等到下次自動排程時，開這個網址（帶上跟採集器同一組
+   PUSH_TOKEN）就能立刻觸發一次讀取，不用整個重新部署伺服器。
+   直接在瀏覽器網址列開，例如：
+   https://你的網址/api/cal-refresh?token=你的PUSH_TOKEN */
+app.get("/api/cal-refresh", (req, res) => {
+  if (!PUSH_TOKEN || (req.query.token !== PUSH_TOKEN && req.get("X-Push-Token") !== PUSH_TOKEN)) {
+    return res.status(401).json({ ok: false, error: "通行碼不正確" });
+  }
+  if (!fetchAllCalendars) {
+    return res.status(501).json({ ok: false, error: "行事曆模組未啟用" });
+  }
+  if (!CAL_SOURCES.length) {
+    return res.status(400).json({ ok: false, error: "尚未設定任何 CAL_ICS_URL_*" });
+  }
+  refreshCalendar()
+    .then(() => {
+      res.json({
+        ok: true,
+        calFetchedAt: calCache ? calCache.fetchedAt : null,
+        calDays: calCache ? calCache.days.length : 0
+      });
+    })
+    .catch((e) => {
+      res.status(500).json({ ok: false, error: e.message });
+    });
 });
 
 /* ---------- 健康檢查 ---------- */
