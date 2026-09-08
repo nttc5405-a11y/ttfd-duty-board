@@ -69,7 +69,7 @@
     head.style.cssText =
       "display:flex;align-items:center;gap:8px;padding:9px 12px;background:#1b2530;" +
       "border-bottom:1px solid #3a4a5a;font-weight:700";
-    head.appendChild(document.createTextNode("勤務看板採集器（自動模式 v10）"));
+    head.appendChild(document.createTextNode("勤務看板採集器（自動模式 v12）"));
 
     var stop = document.createElement("button");
     stop.textContent = "停止並關閉";
@@ -394,15 +394,29 @@
   // 快速查詢不用重新查一次勤務表列表就能標出單位名稱。
   var lastDeptToName = null;
 
+  // 交接班是 08:00，不是午夜。ttfd2 一筆「日期：D」的記錄，實際涵蓋
+  // D 08:00 到 D+1 08:00 這整個值班日——表格從 08-09 排到 23-24，
+  // 再接 00-01 到 07-08，這幾格其實是隔天凌晨，只是仍歸在「D」這筆
+  // 記錄底下（已用 ttfd2 原始畫面截圖驗證過）。如果現在時間還沒到
+  // 08:00，代表真正生效的是「昨天」那個值班日（昨天 08:00 開始，
+  // 今天 08:00 才結束），查「今天」的日期會查到還沒開始的下一個值班
+  // 日，看到的「目前時段」內容其實是明天的班表。
+  function dutyDayOf(d) {
+    var base = new Date(d);
+    if (base.getHours() < 8) base.setDate(base.getDate() - 1);
+    return base;
+  }
+
   function collect(auth, cfg, quiet) {
     if (!quiet) say("向系統查詢勤務表列表…");
 
     var now = new Date();
-    var today = now.getFullYear() + "-" + p2(now.getMonth() + 1) + "-" + p2(now.getDate());
+    var dutyDay = dutyDayOf(now);
+    var today = dutyDay.getFullYear() + "-" + p2(dutyDay.getMonth() + 1) + "-" + p2(dutyDay.getDate());
 
     var body = {
       depts: DEPTS,
-      start: now.toISOString(),
+      start: dutyDay.toISOString(),
       end: null,
       select: "dept date manager workers day night updatedAt",
       limit: 999
@@ -542,13 +556,14 @@
 
   /* ---------- 排程 ----------
      不是單純每 4 小時跑一次：如果距離下次固定排程之間會跨過當天的
-     07:00，就提前在 07:00 那個時間點多跑一次，讓新的一天一開始就有
-     新鮮資料，而不是要等到 4 小時的排程剛好轉到才更新。
+     交接班時間（08:00，見上面 dutyDayOf() 的說明），就提前在 08:00
+     那個時間點多跑一次，讓新的值班日一開始就有新鮮資料，而不是要
+     等到 4 小時的排程剛好轉到才更新。
      這只在「這個分頁從半夜到隔天都沒被關掉」時才有意義——電腦關機、
      分頁被關掉都會讓這個排程跟著消失，這也是為什麼要搭配 Windows
      排程器：就算分頁被關掉、電腦重開機，隔天早上也會有新的分頁
      自動開啟、自動接手。 */
-  var DAILY_HOUR = 7;
+  var DAILY_HOUR = 8;
 
   function msUntilNextRun(now) {
     var next7 = new Date(now);
@@ -584,6 +599,46 @@
         if (/401|403/.test(e.message)) window.__collectorAuth = null;
       });
   }
+
+  /* ---------- 多分頁協調：新分頁自動讓舊分頁停止 ----------
+     Windows 排程器每天開一個新分頁，如果前一天的分頁忘了關，兩個
+     分頁會同時各自跑自己的排程——不會弄錯資料（伺服器那邊已經會用
+     最新的單位對照表重新校正即時出勤的名稱），但會白白浪費資源，
+     狀態視窗也會被兩邊的紀錄弄得很亂，舊分頁又特別容易在 ttfd2
+     系統改版、登入逾時之類的情況卡住、一直重試失敗，洗一堆沒有用
+     的失敗訊息。
+     做法：每個分頁啟動時把自己的代號寫進 localStorage；同網域的其他
+     分頁會收到 storage 事件，發現代號換人了，代表有更新的分頁已經
+     接手，就自己停止排程。基於瀏覽器安全限制，不是所有分頁都能被
+     腳本強制關閉（只有瀏覽紀錄夠單純的分頁才會成功，例如排程器直接
+     開網址、沒有其他頁面連結過去的分頁通常可以），失敗也沒關係，
+     至少能保證舊分頁不會再浪費資源、繼續洗版。 */
+  var LEADER_KEY = "ttfd_collector_leader_v1";
+  var myLeaderId = Date.now() + "_" + Math.random().toString(36).slice(2);
+
+  function claimLeadership() {
+    try {
+      localStorage.setItem(LEADER_KEY, JSON.stringify({ id: myLeaderId, at: Date.now() }));
+    } catch (e) {}
+  }
+
+  function retireOldTab() {
+    say("偵測到有較新的分頁已接手，本分頁停止自動更新，可以關閉。", "#93A6B6");
+    if (window.__collectTimer) clearTimeout(window.__collectTimer);
+    if (window.__collectOutTimer) clearInterval(window.__collectOutTimer);
+    window.__collectTimer = null;
+    window.__collectOutTimer = null;
+    try { window.close(); } catch (e) {}
+  }
+
+  window.addEventListener("storage", function (e) {
+    if (e.key !== LEADER_KEY || !e.newValue) return;
+    try {
+      if (JSON.parse(e.newValue).id !== myLeaderId) retireOldTab();
+    } catch (err) {}
+  });
+
+  claimLeadership();
 
   run(false);
 
