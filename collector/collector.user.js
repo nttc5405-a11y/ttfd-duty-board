@@ -69,7 +69,7 @@
     head.style.cssText =
       "display:flex;align-items:center;gap:8px;padding:9px 12px;background:#1b2530;" +
       "border-bottom:1px solid #3a4a5a;font-weight:700";
-    head.appendChild(document.createTextNode("勤務看板採集器（自動模式 v12）"));
+    head.appendChild(document.createTextNode("勤務看板採集器（自動模式 v13）"));
 
     var stop = document.createElement("button");
     stop.textContent = "停止並關閉";
@@ -504,7 +504,11 @@
           body: JSON.stringify({ outStatus: outStatus })
         }).then(function (r) {
           return r.json().then(function (j) {
-            if (!r.ok || !j.ok) throw new Error(j.error || ("伺服器回應 " + r.status));
+            if (!r.ok || !j.ok) {
+              var err = new Error(j.error || ("伺服器回應 " + r.status));
+              err.status = r.status;
+              throw err;
+            }
             return outStatus;
           });
         });
@@ -597,6 +601,14 @@
       .catch(function (e) {
         say("即時出勤更新失敗：" + e.message, "#F2A93B");
         if (/401|403/.test(e.message)) window.__collectorAuth = null;
+        // 伺服器回 409＝手上完全沒有完整資料（例如 Render 免費方案
+        // 閒置太久休眠、電腦待機期間沒人連線，醒來後記憶體是空的）。
+        // 乾等下一次 4 小時排程太久，看板會一直卡在沒資料狀態，
+        // 直接立刻補跑一次完整採集，順便自然把即時出勤也一起送出。
+        if (e.status === 409) {
+          say("伺服器沒有完整資料（可能剛重新啟動），改為立即執行一次完整採集…", "#F2A93B");
+          run(true);
+        }
       });
   }
 
