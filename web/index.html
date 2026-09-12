@@ -123,6 +123,37 @@ body{
 }
 .slot-next{font-size:clamp(10px,.76vw,12.5px);color:var(--ink-3);font-variant-numeric:tabular-nums}
 
+/* ================= 跑馬燈公告（試算表管理，見 sheetConfig.js） =================
+   平時沒有啟用中的公告就整條隱藏，不佔版面；有公告時才出現，
+   內容依目前選的大隊視角篩選（顯示大隊＝全部，或包含目前這個大隊）。 */
+.marquee{
+  display:flex;align-items:center;gap:10px;
+  padding:6px var(--pad);
+  background:var(--surface-2);
+  border-bottom:1px solid var(--line);
+  overflow:hidden;
+}
+.marquee-icon{flex:none;font-size:14px}
+.marquee-track{flex:1;min-width:0;overflow:hidden;white-space:nowrap}
+.marquee-text{
+  display:inline-block;
+  padding-left:100%;
+  color:var(--blue);
+  font-weight:700;
+  font-size:clamp(11px,.85vw,14px);
+  animation:marquee-scroll linear infinite;
+}
+@keyframes marquee-scroll{
+  from{transform:translateX(0)}
+  to{transform:translateX(-100%)}
+}
+/* .marquee 和 .outbar 都用 hidden 屬性＋JS 切換來控制顯示／隱藏，
+   但兩者各自的 display:flex 規則跟瀏覽器內建的 [hidden]{display:none}
+   規則同樣特異度、又排在後面，會直接蓋掉 hidden 屬性本來該有的效果
+   ——實測發現 .outbar 因此其實從來沒有真的隱藏過，即使沒有人出勤，
+   畫面上仍留著一條空的粉紅色細條。這裡用特異度更高的規則修正兩者。 */
+.marquee[hidden],.outbar[hidden]{display:none}
+
 /* ================= 告示 ================= */
 .notice{
   display:flex;align-items:flex-start;gap:9px;
@@ -599,6 +630,11 @@ try{
   </div>
 </div>
 
+<div class="marquee" id="marquee" hidden>
+  <span class="marquee-icon">📣</span>
+  <div class="marquee-track"><span class="marquee-text" id="marqueetext"></span></div>
+</div>
+
 <div class="notice" id="notice">
   <span class="notice-dot"></span>
   <span id="noticetext"><b>勤務資料為 2026-09-03 的畫面快照</b>　　尚未收到採集器送來的即時資料，畫面顯示內建範例。行事曆為 Google 行事曆真實資料。</span>
@@ -920,6 +956,71 @@ try{
   var brigadeScope="成功大隊";
   try{ brigadeScope=localStorage.getItem(BRIGADE_SCOPE_KEY)||"成功大隊"; }catch(e){}
 
+  /* ---- 切換大隊的密碼保護（試算表管理，見 sheetConfig.js） ----
+     這只是「防手滑切錯大隊」的軟性提醒，不是真的資料隔離——伺服器
+     本來就把全縣資料一起回傳，這裡只是不讓畫面渲染出來。成功大隊
+     自己（預設視角）不設防；GATED_BRIGADES 是伺服器告訴我們「哪些
+     大隊設了密碼」，實際密碼絕不會出現在前端，比對都是打
+     /api/check-brigade-password 問伺服器。答對一次就記住（存
+     localStorage），同一台裝置以後不用再輸入；答對「管理員」密碼
+     則整台裝置以後全部大隊都不用再問。 */
+  var GATED_BRIGADES=[];
+  var ADMIN_UNLOCK_KEY="ttfd_admin_unlocked_v1";
+  var UNLOCKED_BRIGADES_KEY="ttfd_unlocked_brigades_v1";
+
+  function isAdminUnlocked(){
+    try{ return localStorage.getItem(ADMIN_UNLOCK_KEY)==="1"; }catch(e){ return false; }
+  }
+  function getUnlockedBrigades(){
+    try{ return JSON.parse(localStorage.getItem(UNLOCKED_BRIGADES_KEY)||"[]"); }catch(e){ return []; }
+  }
+  function unlockBrigade(b){
+    var arr=getUnlockedBrigades();
+    if(arr.indexOf(b)<0){
+      arr.push(b);
+      try{ localStorage.setItem(UNLOCKED_BRIGADES_KEY,JSON.stringify(arr)); }catch(e){}
+    }
+  }
+  function isBrigadeUnlocked(b){
+    if(b==="成功大隊") return true;
+    if(isAdminUnlocked()) return true;
+    if(GATED_BRIGADES.indexOf(b)<0) return true;   // 這個大隊沒設密碼
+    return getUnlockedBrigades().indexOf(b)>=0;
+  }
+  function checkBrigadePassword(brigade,password){
+    return fetch("/api/check-brigade-password",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({brigade:brigade,password:password})
+    }).then(function(r){ return r.json(); });
+  }
+
+  /* ---- 跑馬燈公告（試算表管理，見 sheetConfig.js） ----
+     BOARD_NOTICES 是伺服器整理好、已篩掉「啟用」欄為否的清單，
+     每筆帶 targets（顯示對象：["ALL"] 或大隊名稱陣列）。前端依目前
+     brigadeScope 篩選要顯示哪幾則，跟語音提醒用的 collectAnnouncements()
+     是完全不同的兩件事，故意取不同名字避免搞混。 */
+  var BOARD_NOTICES=[];
+
+  function renderNoticeBar(){
+    var el=document.getElementById("marquee");
+    var txt=document.getElementById("marqueetext");
+    if(!el||!txt) return;
+    var active=BOARD_NOTICES.filter(function(n){
+      var targets=n.targets||["ALL"];
+      return targets.indexOf("ALL")>=0||targets.indexOf(brigadeScope)>=0;
+    });
+    if(!active.length){ el.hidden=true; return; }
+    var text=active.map(function(n){ return n.text; }).join("　｜　");
+    txt.textContent=text;
+    el.hidden=false;
+    var dur=Math.max(15,text.length*0.28);
+    txt.style.animation="none";
+    void txt.offsetWidth;   // 強制重排，讓動畫從頭開始播放
+    txt.style.animation="";
+    txt.style.animationDuration=dur+"s";
+  }
+
   // 成功大隊自己的專屬採集器（/api/push）如果還沒送過資料
   // （remoteReceivedAt 沒值），但全縣採集器（局本部帳號）已經有
   // 資料——全縣資料本來就含成功大隊自己那 6 個單位——就借用全縣
@@ -1006,21 +1107,48 @@ try{
 
     sel.onchange=function(){
       var parts=sel.value.split("|");
-      brigadeScope=parts[0]; unitScope=parts[1]||"ALL";
-      try{
-        localStorage.setItem(BRIGADE_SCOPE_KEY,brigadeScope);
-        localStorage.setItem(UNIT_SCOPE_KEY,unitScope);
-      }catch(e){}
-      applyBrigadeScope();
-      sel.classList.toggle("scoped",!(brigadeScope==="成功大隊"&&unitScope==="ALL"));
-      // 切換分隊不影響總覽帶（本來就是同一個大隊）；但切換大隊會整個
-      // 換掉 UNITS，總覽帶（大隊人力總覽）也要跟著重繪，不然會停在
-      // 上一個大隊的數字。
-      renderStrip();
-      renderSquads(currentSlotKey());
-      renderLeave();
-      renderTasks(new Date());
-      renderOutStatus();
+      var newBrigade=parts[0], newUnit=parts[1]||"ALL";
+      var prevBrigade=brigadeScope, prevUnit=unitScope;
+
+      function commitSwitch(){
+        brigadeScope=newBrigade; unitScope=newUnit;
+        try{
+          localStorage.setItem(BRIGADE_SCOPE_KEY,brigadeScope);
+          localStorage.setItem(UNIT_SCOPE_KEY,unitScope);
+        }catch(e){}
+        applyBrigadeScope();
+        sel.classList.toggle("scoped",!(brigadeScope==="成功大隊"&&unitScope==="ALL"));
+        // 切換分隊不影響總覽帶（本來就是同一個大隊）；但切換大隊會整個
+        // 換掉 UNITS，總覽帶（大隊人力總覽）也要跟著重繪，不然會停在
+        // 上一個大隊的數字。
+        renderStrip();
+        renderSquads(currentSlotKey());
+        renderLeave();
+        renderTasks(new Date());
+        renderOutStatus();
+        renderNoticeBar();
+      }
+
+      if(isBrigadeUnlocked(newBrigade)){
+        commitSwitch();
+        return;
+      }
+
+      var pw=prompt("切換到「"+newBrigade+"」需要密碼：");
+      if(pw==null){ sel.value=prevBrigade+"|"+prevUnit; return; }   // 使用者取消
+      checkBrigadePassword(newBrigade,pw).then(function(res){
+        if(res&&res.ok){
+          if(res.admin){ try{ localStorage.setItem(ADMIN_UNLOCK_KEY,"1"); }catch(e){} }
+          else{ unlockBrigade(newBrigade); }
+          commitSwitch();
+        }else{
+          alert("密碼不正確，無法切換大隊。");
+          sel.value=prevBrigade+"|"+prevUnit;
+        }
+      }).catch(function(){
+        alert("無法連線驗證密碼，請稍後再試。");
+        sel.value=prevBrigade+"|"+prevUnit;
+      });
     };
   }
 
@@ -1593,11 +1721,17 @@ try{
           checkFreshness();
         }
 
+        // 密碼保護名單、跑馬燈公告，見 sheetConfig.js。伺服器沒設定
+        // 這兩個功能時欄位就是空陣列，跟現有其他選填功能一致。
+        if(Array.isArray(d.gatedBrigades)) GATED_BRIGADES=d.gatedBrigades;
+        if(Array.isArray(d.notices)) BOARD_NOTICES=d.notices;
+
         applyBrigadeScope();   // 先把 UNITS/TASKS/OUT_STATUS 指到目前選的大隊，渲染才會對
         renderStrip();
         renderLeave();
         renderUnitSelector();
         renderOutStatus();
+        renderNoticeBar();
         lastKey=null; lastMin=-1;   // 強制重繪
         tick();
       })
@@ -1725,6 +1859,7 @@ try{
   renderUnitSelector();
   renderSlotSelector();
   renderOutStatus();
+  renderNoticeBar();
   tick();
   setInterval(tick,1000);
   setInterval(checkFreshness,60*1000);   // 每分鐘檢查一次資料是否太久沒更新

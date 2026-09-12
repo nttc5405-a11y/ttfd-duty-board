@@ -18,6 +18,11 @@
       /api/duty 的回應（countyUnits／countyTasks／countyOutStatus
       欄位），看板前端依需要切換顯示。
 
+   5. 試算表驅動設定：密碼保護、單位代碼→大隊對照、跑馬燈公告都改
+      用 Google 試算表管理（見 sheetConfig.js），伺服器定時讀取、
+      也有手動觸發端點 /api/config-refresh，不用改程式碼、不用
+      重新部署，改試算表內容即可生效。
+
    環境變數（在 Render 的 Environment 設定）：
      PUSH_TOKEN       必填。採集器送資料時要帶的通行碼，自己取一串亂碼。
      ALLOW_ORIGIN     選填。允許送資料進來的來源，預設 https://ttfd2.firemis.tw
@@ -27,6 +32,10 @@
      以上三個都是選填、且互相獨立——沒設定的來源就不會出現在看板上，
      之後要加新來源，只要多設一個環境變數即可，不需要改程式碼。
      若三個都沒設定，行事曆會沿用看板內建的靜態快照（不會自動更新）。
+     CONFIG_PASSWORDS_URL  選填。密碼分頁發布出來的 CSV 網址。
+     CONFIG_DEPTS_URL      選填。單位代碼分頁發布出來的 CSV 網址。
+     CONFIG_NOTICES_URL    選填。跑馬燈分頁發布出來的 CSV 網址。
+     這三個也都選填、互相獨立，用法見 sheetConfig.js 檔頭說明。
    ============================================================ */
 
 "use strict";
@@ -43,6 +52,15 @@ try {
   fetchAllCalendars = require("./calendar").fetchAllCalendars;
 } catch (e) {
   console.log("[boot] 行事曆模組載入失敗，行事曆功能停用，其餘照常運作：" + e.message);
+}
+
+// 試算表驅動設定（密碼／單位代碼／跑馬燈）一樣獨立包一層防護，
+// 載入失敗就當「沒有這個功能」，不連累其餘功能。
+let sheetConfig = null;
+try {
+  sheetConfig = require("./sheetConfig");
+} catch (e) {
+  console.log("[boot] 試算表設定模組載入失敗，密碼保護／單位代碼／跑馬燈功能停用，其餘照常運作：" + e.message);
 }
 
 const app = express();
@@ -107,6 +125,17 @@ if (CAL_SOURCES.length) {
   setInterval(refreshCalendar, CAL_POLL_MS);
 } else {
   console.log("[boot] 尚未設定任何 CAL_ICS_URL_*，行事曆將沿用看板內建的靜態快照");
+}
+
+/* ---------- 試算表驅動設定：自己排程去讀，不需要人操作 ---------- */
+const CONFIG_POLL_MS = 30 * 60 * 1000; // 30 分鐘。比行事曆頻繁，因為密碼、跑馬燈這種內容改動後通常想快點生效。
+if (sheetConfig) {
+  sheetConfig.refreshConfig().then(function (r) {
+    var msg = "[config] 已載入，密碼 " + r.passwords + " 筆、單位代碼 " + r.depts + " 筆、跑馬燈 " + r.notices + " 筆";
+    if (r.errors.length) msg += "；部分來源失敗：" + r.errors.join("；");
+    console.log(msg);
+  });
+  setInterval(function () { sheetConfig.refreshConfig(); }, CONFIG_POLL_MS);
 }
 
 app.use(express.json({ limit: "2mb" }));
@@ -287,13 +316,75 @@ app.get("/api/duty", (req, res) => {
     data.calFetchedAt = calCache.fetchedAt;
   }
   if (latestCounty) {
-    data.countyUnits = latestCounty.data.countyUnits;
-    data.countyTasks = latestCounty.data.countyTasks;
-    data.countyOutStatus = resolveOutStatusNames(latestCounty.data.countyUnits, latestCounty.data.countyOutStatus);
+    var countyUnits = latestCounty.data.countyUnits;
+    var countyTasks = latestCounty.data.countyTasks || [];
+    var countyOutStatus = resolveOutStatusNames(countyUnits, latestCounty.data.countyOutStatus);
+
+    // 單位代碼→大隊對照表若有試算表資料就覆蓋採集器當初算的結果，
+    // 這樣單位改編、新增分隊只要改試算表就好，不用重新部署採集器。
+    // 試算表沒有這筆資料（或整份抓不到）就保留採集器原本算的值，
+    // 不會因為試算表暫時失效而讓分類整個消失。
+    if (sheetConfig) {
+      countyUnits = countyUnits.map(function (u) {
+        var ov = sheetConfig.resolveBrigadeById(u.deptId);
+        return ov ? Object.assign({}, u, { brigade: ov }) : u;
+      });
+      countyTasks = countyTasks.map(function (t) {
+        var ov = sheetConfig.resolveBrigadeByName(t.unit);
+        return ov ? Object.assign({}, t, { brigade: ov }) : t;
+      });
+      countyOutStatus = countyOutStatus.map(function (o) {
+        var ov = sheetConfig.resolveBrigadeById(o.dept);
+        return ov ? Object.assign({}, o, { brigade: ov }) : o;
+      });
+    }
+
+    data.countyUnits = countyUnits;
+    data.countyTasks = countyTasks;
+    data.countyOutStatus = countyOutStatus;
     data.countyReceivedAt = latestCounty.receivedAt;
     data.countyDate = latestCounty.data.date;
   }
+
+  // 密碼保護清單、跑馬燈公告：只給「有哪些大隊設了密碼」與「公告
+  // 內容」，實際密碼絕不放進這個回應——密碼比對走 /api/check-brigade-
+  // password，不然任何人打開瀏覽器開發者工具的網路分頁就能直接看到
+  // 明文密碼，防手滑的功能就沒意義了。
+  data.gatedBrigades = sheetConfig ? sheetConfig.gatedBrigades() : [];
+  data.notices = sheetConfig ? sheetConfig.activeNotices() : [];
+
   res.json({ ok: true, receivedAt: latest ? latest.receivedAt : null, data: data });
+});
+
+/* ---------- 大隊切換密碼比對 ----------
+   純軟性保護：防止手滑切到別的大隊，不是真的資料隔離（/api/duty
+   本來就會把全縣資料一起回應給前端，這裡只是不讓畫面渲染出來）。
+   密碼本身只存在伺服器記憶體（從試算表讀來的），這支端點只回
+   true/false，不會把密碼內容回傳給前端。 */
+app.post("/api/check-brigade-password", (req, res) => {
+  if (!sheetConfig) {
+    return res.status(501).json({ ok: false, error: "密碼保護尚未啟用" });
+  }
+  const body = req.body || {};
+  const result = sheetConfig.checkPassword(String(body.brigade || ""), String(body.password || ""));
+  res.json(result);
+});
+
+/* ---------- 手動觸發試算表設定重新讀取 ----------
+   平常靠 CONFIG_POLL_MS（30 分鐘）自動排程；改了密碼、單位代碼、
+   跑馬燈內容想立刻生效，開這個網址（帶上跟採集器同一組
+   PUSH_TOKEN）即可，不用整個重新部署。
+   https://你的網址/api/config-refresh?token=你的PUSH_TOKEN */
+app.get("/api/config-refresh", (req, res) => {
+  if (!PUSH_TOKEN || (req.query.token !== PUSH_TOKEN && req.get("X-Push-Token") !== PUSH_TOKEN)) {
+    return res.status(401).json({ ok: false, error: "通行碼不正確" });
+  }
+  if (!sheetConfig) {
+    return res.status(501).json({ ok: false, error: "試算表設定模組未啟用" });
+  }
+  sheetConfig.refreshConfig()
+    .then((r) => res.json(Object.assign({ ok: true }, r)))
+    .catch((e) => res.status(500).json({ ok: false, error: e.message }));
 });
 
 /* ---------- 手動觸發行事曆重新讀取 ----------
@@ -337,7 +428,8 @@ app.get("/api/health", (req, res) => {
     tokenConfigured: !!PUSH_TOKEN,
     calSources: CAL_SOURCES.map((s) => s.name),
     calFetchedAt: calCache ? calCache.fetchedAt : null,
-    calDays: calCache ? calCache.days.length : 0
+    calDays: calCache ? calCache.days.length : 0,
+    config: sheetConfig ? sheetConfig.status() : null
   });
 });
 
