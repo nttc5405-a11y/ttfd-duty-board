@@ -264,7 +264,12 @@ function resolveOutStatusNames(units, outStatus) {
 
 /* ---------- 給資料 ---------- */
 app.get("/api/duty", (req, res) => {
-  if (!latest) {
+  // 成功大隊自己的資料（latest）跟全縣多大隊資料（latestCounty）是
+  // 完全獨立的兩份，只有兩邊都沒有時才真的算「沒有資料」——如果只是
+  // 其中一邊還沒補回來（例如 Render 剛重啟、還沒跑過那邊的採集器），
+  // 另一邊已經有的資料還是要正常供應，不能整包 404 掉，不然就違背
+  // 兩邊互不影響的設計初衷。
+  if (!latest && !latestCounty) {
     return res.status(404).json({
       ok: false,
       error: "尚未收到任何勤務資料",
@@ -273,8 +278,10 @@ app.get("/api/duty", (req, res) => {
   }
   // 行事曆、全縣多大隊資料都是分開維護的，這裡合併成同一份回應，
   // 看板端只要讀一個地方就好。
-  var data = Object.assign({}, latest.data);
-  data.outStatus = resolveOutStatusNames(data.units, data.outStatus);
+  var data = latest ? Object.assign({}, latest.data) : {};
+  if (latest) {
+    data.outStatus = resolveOutStatusNames(data.units, data.outStatus);
+  }
   if (calCache) {
     data.cal = calCache.days;
     data.calFetchedAt = calCache.fetchedAt;
@@ -285,7 +292,7 @@ app.get("/api/duty", (req, res) => {
     data.countyOutStatus = resolveOutStatusNames(latestCounty.data.countyUnits, latestCounty.data.countyOutStatus);
     data.countyReceivedAt = latestCounty.receivedAt;
   }
-  res.json({ ok: true, receivedAt: latest.receivedAt, data: data });
+  res.json({ ok: true, receivedAt: latest ? latest.receivedAt : null, data: data });
 });
 
 /* ---------- 手動觸發行事曆重新讀取 ----------

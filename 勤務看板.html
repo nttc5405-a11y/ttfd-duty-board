@@ -1498,9 +1498,16 @@ try{
           renderCalFilterChips();
         }
 
-        remoteReceivedAt=new Date(j.receivedAt);
-        remoteDutyDate=d.date;
-        checkFreshness();
+        // j.receivedAt 只有成功大隊自己的資料（latest）存在時才有值；
+        // 如果目前只有全縣資料先到（latest 還沒補回來，例如伺服器
+        // 剛重啟），不能把 null 硬塞給 new Date()（會變成 1970 年，
+        // 讓新鮮度判斷誤判成「資料已經幾萬小時沒更新」）。這種情況
+        // 保持原本「尚未收到即時資料」的預設告示就好。
+        if(j.receivedAt){
+          remoteReceivedAt=new Date(j.receivedAt);
+          remoteDutyDate=d.date;
+          checkFreshness();
+        }
 
         applyBrigadeScope();   // 先把 UNITS/TASKS/OUT_STATUS 指到目前選的大隊，渲染才會對
         renderStrip();
