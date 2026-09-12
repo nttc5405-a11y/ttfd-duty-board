@@ -578,6 +578,7 @@ try{
 
 <div class="controls">
   <select class="ctrl-select" id="unitScope" title="切換顯示範圍：全大隊或單一分隊" aria-label="切換顯示範圍"></select>
+  <select class="ctrl-select" id="slotScope" title="切換顯示時段：預設跟著目前時間走" aria-label="切換顯示時段"></select>
   <button class="ctrl-btn" id="themeToggle" type="button" title="切換日間／夜間模式" aria-label="切換日間／夜間模式">🌙</button>
   <button class="ctrl-btn" id="voiceToggle" type="button" title="語音提醒（尚未開啟）" aria-label="語音提醒開關">🔇</button>
 </div>
@@ -906,8 +907,8 @@ try{
      語音提醒的勤務項目也只播該分隊的。
      選單另外分組列出全縣其他大隊（台東／關山／大武／局本部），選了
      哪個大隊，UNITS/TASKS/OUT_STATUS 這幾個既有渲染函式在用的變數
-     就切換成該大隊的資料——這幾支大隊目前只提供「全部」視角，不像
-     成功大隊那樣能再細看單一分隊，之後真的需要再加。
+     就切換成該大隊的資料；每個大隊底下一樣可以再細看該大隊自己的
+     單一分隊，跟成功大隊同一套邏輯，只是資料來源換成 COUNTY_*。
      大隊總覽帶、Google 行事曆這兩塊不受這個選擇影響——前者是全大隊
      的巨觀資訊，後者的資料來源本來就沒有「屬於哪個分隊」這種對應。
      選擇存在瀏覽器 localStorage，同一台裝置下次開啟還記得。 */
@@ -956,7 +957,9 @@ try{
     }
 
     var hqNames=HQ_UNITS.map(function(u){ return u.name; });
-    if(brigadeScope==="成功大隊"&&unitScope!=="ALL"&&hqNames.indexOf(unitScope)<0){
+    var brigadeNames=(brigadeScope==="成功大隊")?hqNames:
+      COUNTY_UNITS.filter(function(u){ return u.brigade===brigadeScope; }).map(function(u){ return u.name; });
+    if(unitScope!=="ALL"&&brigadeNames.indexOf(unitScope)<0){
       // 選到的分隊在最新資料裡消失了（例如單位改名），退回全部並記住
       unitScope="ALL";
       try{ localStorage.setItem(UNIT_SCOPE_KEY,unitScope); }catch(e){}
@@ -972,9 +975,13 @@ try{
     html+="</optgroup>";
 
     COUNTY_BRIGADES.forEach(function(b){
-      if(!COUNTY_UNITS.some(function(u){ return u.brigade===b; })) return;   // 該大隊還沒有資料就先不列出
+      var names=COUNTY_UNITS.filter(function(u){ return u.brigade===b; }).map(function(u){ return u.name; });
+      if(!names.length) return;   // 該大隊還沒有資料就先不列出
       html+='<optgroup label="'+esc(b)+'">';
-      html+='<option value="'+esc(b)+'|ALL"'+(brigadeScope===b?" selected":"")+'>全部（'+esc(b)+'視角）</option>';
+      html+='<option value="'+esc(b)+'|ALL"'+((brigadeScope===b&&unitScope==="ALL")?" selected":"")+'>全部（'+esc(b)+'視角）</option>';
+      names.forEach(function(n){
+        html+='<option value="'+esc(b)+'|'+esc(n)+'"'+((brigadeScope===b&&unitScope===n)?" selected":"")+'>'+esc(n)+"</option>";
+      });
       html+="</optgroup>";
     });
 
@@ -994,10 +1001,44 @@ try{
       // 換掉 UNITS，總覽帶（大隊人力總覽）也要跟著重繪，不然會停在
       // 上一個大隊的數字。
       renderStrip();
-      renderSquads(lastKey||slotKey(new Date().getHours()));
+      renderSquads(currentSlotKey());
       renderLeave();
       renderTasks(new Date());
       renderOutStatus();
+    };
+  }
+
+  /* ---- 時段切換（獨立於單位範圍） ----
+     預設跟著目前時間走（即時）；選了某個時段，編組卡的值班／車輛
+     內容就固定顯示那個時段，不再跟著時鐘跳動，方便查詢「某個時段
+     是誰在班」，不用等到真的到那個時間。
+     只影響編組卡本身——當前時間時鐘、日期、即時出勤橫幅都是「現在
+     真的發生什麼事」的資訊，不受這個選擇影響，一律照真實時間顯示。
+     刻意不存進 localStorage：這是公用電視牆，重新整理／隔天應該
+     自動回到「跟著目前時間走」，不要讓上一個人選的時段卡住畫面。 */
+  var slotOverride=null;
+
+  function currentSlotKey(){
+    return slotOverride||slotKey(new Date().getHours());
+  }
+
+  function renderSlotSelector(){
+    var sel=document.getElementById("slotScope");
+    if(!sel) return;
+
+    var html='<option value=""'+(!slotOverride?" selected":"")+'>目前時段（即時）</option>';
+    for(var h=0;h<24;h++){
+      var k=slotKey(h);
+      html+='<option value="'+k+'"'+(slotOverride===k?" selected":"")+'>'+k.replace("-"," – ")+"</option>";
+    }
+    sel.innerHTML=html;
+    sel.classList.toggle("scoped",!!slotOverride);
+
+    sel.onchange=function(){
+      slotOverride=sel.value||null;
+      sel.classList.toggle("scoped",!!slotOverride);
+      lastKey=null;   // 強制 tick() 下一次重新判斷、重繪編組卡
+      renderSquads(currentSlotKey());
     };
   }
 
@@ -1383,7 +1424,7 @@ try{
     var now=new Date();
     var h=now.getHours(), mi=now.getMinutes();
     var nowMin=h*60+mi;
-    var key=slotKey(h);
+    var key=currentSlotKey();   // 有手動選時段就固定顯示那個時段，否則跟著現在時間走
 
     var c=document.getElementById("clock");
     if(c) c.innerHTML=p2(h)+":"+p2(mi)+'<span class="sec">'+p2(now.getSeconds())+"</span>";
@@ -1398,7 +1439,13 @@ try{
     if(sl) sl.textContent=key.replace("-"," – ");
 
     var sn=document.getElementById("slotnext");
-    if(sn) sn.textContent="本時段尚餘 "+(60-mi)+" 分，下一時段 "+p2((h+1)%24)+":00";
+    if(sn){
+      if(slotOverride){
+        sn.textContent="手動查看時段（非即時）";
+      }else{
+        sn.textContent="本時段尚餘 "+(60-mi)+" 分，下一時段 "+p2((h+1)%24)+":00";
+      }
+    }
 
     if(key!==lastKey){ lastKey=key; renderSquads(key); }
 
@@ -1639,6 +1686,7 @@ try{
   renderLeave();
   renderCalFilterChips();
   renderUnitSelector();
+  renderSlotSelector();
   renderOutStatus();
   tick();
   setInterval(tick,1000);
