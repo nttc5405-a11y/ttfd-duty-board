@@ -119,6 +119,7 @@ async function fetchOneSource(src) {
       loc: trimLoc(ev.location),
       cal: src.name,
       tag: src.tag,
+      brigade: src.brigade || null,
       link: buildLink(ev.uid, calendarId)
     };
     out.push(item);
@@ -193,6 +194,7 @@ async function fetchAllCalendars(sources) {
       })
       .map(function (it) {
         var o = { title: it.title, cal: it.cal, tag: it.tag };
+        if (it.brigade) o.brigade = it.brigade;
         if (it.allday) o.allday = true; else o.t = it.t;
         if (it.loc) o.loc = it.loc;
         if (it.link) o.link = it.link;

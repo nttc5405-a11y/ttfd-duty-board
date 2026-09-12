@@ -35,7 +35,12 @@
      CONFIG_PASSWORDS_URL  選填。密碼分頁發布出來的 CSV 網址。
      CONFIG_DEPTS_URL      選填。單位代碼分頁發布出來的 CSV 網址。
      CONFIG_NOTICES_URL    選填。跑馬燈分頁發布出來的 CSV 網址。
-     這三個也都選填、互相獨立，用法見 sheetConfig.js 檔頭說明。
+     CONFIG_CALENDARS_URL  選填。行事曆分頁發布出來的 CSV 網址，讓
+                           其他大隊自己上傳自己的行事曆；跟上面
+                           CAL_ICS_URL_* 那三個環境變數是疊加關係，
+                           不是取代——成功大隊的私人行事曆網址建議
+                           繼續留在環境變數，不用搬進試算表。
+     這四個也都選填、互相獨立，用法見 sheetConfig.js 檔頭說明。
    ============================================================ */
 
 "use strict";
@@ -95,19 +100,32 @@ try {
   console.log("[boot] 全縣資料快取讀取失敗，忽略：" + e.message);
 }
 
-/* ---------- 行事曆：自己排程去讀，不需要人操作 ---------- */
+/* ---------- 行事曆：自己排程去讀，不需要人操作 ----------
+   CAL_SOURCES 是環境變數版本的來源，固定歸類成功大隊——這些通常是
+   私人行事曆網址（等同密碼），只存在 Render 環境變數裡最安全，繼續
+   保留這個管道。試算表（CONFIG_CALENDARS_URL，見 sheetConfig.js）
+   的內容是「疊加」上去、不是取代：讓其他大隊能自己上傳、自己管理
+   行事曆來源，同時成功大隊原本的私人行事曆網址不用搬進試算表
+   （試算表發布成網路連結後，內容技術上任何人都讀得到，適合公開或
+   風險較低的行事曆；私人行事曆繼續留在環境變數才是最安全的作法）。 */
 const CAL_SOURCES = [
-  { name: "大隊", tag: "t1", url: process.env.CAL_ICS_URL_DAJI || "" },
-  { name: "義消", tag: "t3", url: process.env.CAL_ICS_URL_YIXIAO || "" },
-  { name: "局本部", tag: "t2", url: process.env.CAL_ICS_URL_JUBENBU || "" }
+  { name: "大隊", tag: "t1", brigade: "成功大隊", url: process.env.CAL_ICS_URL_DAJI || "" },
+  { name: "義消", tag: "t3", brigade: "成功大隊", url: process.env.CAL_ICS_URL_YIXIAO || "" },
+  { name: "局本部", tag: "t2", brigade: "成功大隊", url: process.env.CAL_ICS_URL_JUBENBU || "" }
 ].filter((s) => s.url);
+
+function currentCalSources() {
+  var fromSheet = sheetConfig ? sheetConfig.calendarSources() : [];
+  return CAL_SOURCES.concat(fromSheet);
+}
 
 const CAL_POLL_MS = 12 * 60 * 60 * 1000; // 12 小時
 let calCache = null; // { days, fetchedAt }
 
 function refreshCalendar() {
-  if (!CAL_SOURCES.length || !fetchAllCalendars) return Promise.resolve();
-  return fetchAllCalendars(CAL_SOURCES)
+  var sources = currentCalSources();
+  if (!sources.length || !fetchAllCalendars) return Promise.resolve();
+  return fetchAllCalendars(sources)
     .then((result) => {
       calCache = { days: result.days, fetchedAt: result.fetchedAt };
       var msg = "[cal] 已更新，共 " + result.days.length + " 天有行程";
@@ -119,12 +137,12 @@ function refreshCalendar() {
     });
 }
 
-if (CAL_SOURCES.length) {
-  console.log("[boot] 行事曆來源：" + CAL_SOURCES.map((s) => s.name).join("、"));
+if (currentCalSources().length) {
+  console.log("[boot] 行事曆來源：" + currentCalSources().map((s) => s.name).join("、"));
   refreshCalendar();
   setInterval(refreshCalendar, CAL_POLL_MS);
 } else {
-  console.log("[boot] 尚未設定任何 CAL_ICS_URL_*，行事曆將沿用看板內建的靜態快照");
+  console.log("[boot] 尚未設定任何 CAL_ICS_URL_* 或 CONFIG_CALENDARS_URL，行事曆將沿用看板內建的靜態快照");
 }
 
 /* ---------- 試算表驅動設定：自己排程去讀，不需要人操作 ---------- */
@@ -400,8 +418,8 @@ app.get("/api/cal-refresh", (req, res) => {
   if (!fetchAllCalendars) {
     return res.status(501).json({ ok: false, error: "行事曆模組未啟用" });
   }
-  if (!CAL_SOURCES.length) {
-    return res.status(400).json({ ok: false, error: "尚未設定任何 CAL_ICS_URL_*" });
+  if (!currentCalSources().length) {
+    return res.status(400).json({ ok: false, error: "尚未設定任何 CAL_ICS_URL_* 或 CONFIG_CALENDARS_URL" });
   }
   refreshCalendar()
     .then(() => {
@@ -426,7 +444,7 @@ app.get("/api/health", (req, res) => {
     countyReceivedAt: latestCounty ? latestCounty.receivedAt : null,
     countyUnits: latestCounty ? latestCounty.data.countyUnits.length : 0,
     tokenConfigured: !!PUSH_TOKEN,
-    calSources: CAL_SOURCES.map((s) => s.name),
+    calSources: currentCalSources().map((s) => s.name + "（" + s.brigade + "）"),
     calFetchedAt: calCache ? calCache.fetchedAt : null,
     calDays: calCache ? calCache.days.length : 0,
     config: sheetConfig ? sheetConfig.status() : null

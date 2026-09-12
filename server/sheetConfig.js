@@ -20,6 +20,16 @@
                             欄位：公告文字、顯示大隊、啟用。
                             顯示大隊可填「全部」或用逗號分隔多個大隊
                             名稱；啟用欄填 TRUE/FALSE。
+     CONFIG_CALENDARS_URL   「行事曆」分頁發布出來的 CSV 網址。
+                            欄位：名稱、所屬大隊、網址。
+                            各單位自己上傳自己的 Google 行事曆 iCal
+                            訂閱網址，切換大隊視角時只顯示該大隊自己
+                            上傳的行事曆。這份資料跟 server.js 裡
+                            CAL_ICS_URL_* 那三個環境變數是疊加關係、
+                            不是取代——成功大隊的私人行事曆網址建議
+                            繼續留在環境變數（試算表發布成網路連結後
+                            內容技術上任何人都讀得到，適合公開或風險
+                            較低的行事曆，不適合放太敏感的私人網址）。
    ============================================================ */
 
 "use strict";
@@ -27,13 +37,16 @@
 const PASSWORDS_URL = process.env.CONFIG_PASSWORDS_URL || "";
 const DEPTS_URL = process.env.CONFIG_DEPTS_URL || "";
 const NOTICES_URL = process.env.CONFIG_NOTICES_URL || "";
+const CALENDARS_URL = process.env.CONFIG_CALENDARS_URL || "";
 
 const ADMIN_KEY = "管理員";
+const CAL_TAGS = ["t1", "t2", "t3"];   // 前端只定義了三種顏色的篩選鈕樣式，循環使用
 
-let passwordsCache = {};   // { 大隊名: 密碼 }，含 "管理員" 這個特殊 key
-let deptByIdCache = {};    // { 單位代碼: 所屬大隊 }
-let deptByNameCache = {};  // { 單位名稱: 所屬大隊 }
-let noticesCache = [];     // [{ text, targets:[大隊...] 或 ["ALL"] }]
+let passwordsCache = {};      // { 大隊名: 密碼 }，含 "管理員" 這個特殊 key
+let deptByIdCache = {};       // { 單位代碼: 所屬大隊 }
+let deptByNameCache = {};     // { 單位名稱: 所屬大隊 }
+let noticesCache = [];        // [{ text, targets:[大隊...] 或 ["ALL"] }]
+let calendarSourcesCache = []; // [{ name, brigade, url, tag }]
 
 let lastRefreshAt = null;
 let lastErrors = [];
@@ -147,18 +160,36 @@ function refreshNotices() {
   });
 }
 
+function refreshCalendars() {
+  if (!CALENDARS_URL) { calendarSourcesCache = []; return Promise.resolve(0); }
+  return fetchCSV(CALENDARS_URL).then(function (rows) {
+    var list = [];
+    rows.forEach(function (r) {
+      var name = r["名稱"] || "";
+      var brigade = r["所屬大隊"] || "";
+      var url = r["網址"] || "";
+      if (!name || !brigade || !url) return;
+      list.push({ name: name, brigade: brigade, url: url, tag: CAL_TAGS[list.length % CAL_TAGS.length] });
+    });
+    calendarSourcesCache = list;
+    return list.length;
+  });
+}
+
 function refreshConfig() {
   lastErrors = [];
   return Promise.all([
     refreshPasswords().catch(function (e) { lastErrors.push("密碼：" + e.message); return null; }),
     refreshDepts().catch(function (e) { lastErrors.push("單位代碼：" + e.message); return null; }),
-    refreshNotices().catch(function (e) { lastErrors.push("跑馬燈：" + e.message); return null; })
+    refreshNotices().catch(function (e) { lastErrors.push("跑馬燈：" + e.message); return null; }),
+    refreshCalendars().catch(function (e) { lastErrors.push("行事曆來源：" + e.message); return null; })
   ]).then(function (counts) {
     lastRefreshAt = new Date().toISOString();
     return {
       passwords: counts[0],
       depts: counts[1],
       notices: counts[2],
+      calendars: counts[3],
       errors: lastErrors
     };
   });
@@ -194,15 +225,21 @@ function activeNotices() {
   return noticesCache;
 }
 
+function calendarSources() {
+  return calendarSourcesCache;
+}
+
 function status() {
   return {
     passwordsConfigured: !!PASSWORDS_URL,
     deptsConfigured: !!DEPTS_URL,
     noticesConfigured: !!NOTICES_URL,
+    calendarsConfigured: !!CALENDARS_URL,
     gatedBrigades: gatedBrigades(),
     hasAdminPassword: !!passwordsCache[ADMIN_KEY],
     deptCount: Object.keys(deptByIdCache).length,
     noticeCount: noticesCache.length,
+    calendarSourceCount: calendarSourcesCache.length,
     lastRefreshAt: lastRefreshAt,
     lastErrors: lastErrors
   };
@@ -215,5 +252,6 @@ module.exports = {
   resolveBrigadeById: resolveBrigadeById,
   resolveBrigadeByName: resolveBrigadeByName,
   activeNotices: activeNotices,
+  calendarSources: calendarSources,
   status: status
 };

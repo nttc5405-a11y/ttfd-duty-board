@@ -1127,6 +1127,11 @@ try{
         renderTasks(new Date());
         renderOutStatus();
         renderNoticeBar();
+        // 行事曆來源可能因大隊而異（見 sheetConfig.js 的 CONFIG_CALENDARS_URL），
+        // 篩選鈕清單跟目前顯示的行程都要跟著重算，不然會停在上一個大隊的內容。
+        rebuildCalIndex();
+        renderCalFilterChips();
+        renderCal(new Date());
       }
 
       if(isBrigadeUnlocked(newBrigade)){
@@ -1427,11 +1432,18 @@ try{
   var CAL_FILTER_KEY="board-cal-filter";
   var calActive=new Set();
 
+  // 行事曆項目可能帶 brigade（試算表管理的來源，見 sheetConfig.js），
+  // 沒有 brigade 欄位的舊資料（環境變數版的固定三個來源）一律當成
+  // 成功大隊自己的行事曆——這是這個欄位加入之前唯一存在過的情況，
+  // 這樣切換視角的篩選才不會把既有資料誤判成「不屬於任何大隊」。
+  function calEvBrigade(ev){ return ev.brigade||"成功大隊"; }
+
   function rebuildCalIndex(){
     CAL_NAMES=[]; CAL_NAME_TAG={};
     var seen={};
     CAL.forEach(function(day){
       day.items.forEach(function(ev){
+        if(calEvBrigade(ev)!==brigadeScope) return;
         if(!seen[ev.cal]){ seen[ev.cal]=true; CAL_NAMES.push(ev.cal); CAL_NAME_TAG[ev.cal]=ev.tag||"t1"; }
       });
     });
@@ -1454,7 +1466,13 @@ try{
 
   function renderCalFilterChips(){
     var host=document.getElementById("calfilter");
-    if(!host||CAL_NAMES.length<2) return;   // 只有一個來源就不需要篩選鈕
+    if(!host) return;
+    if(CAL_NAMES.length<2){
+      // 只有一個來源（或切到一個還沒設定行事曆的大隊、來源數為 0）
+      // 不需要篩選鈕；務必清空，不然會留著上一個大隊的篩選鈕殘影。
+      host.innerHTML="";
+      return;
+    }
 
     host.innerHTML=CAL_NAMES.map(function(name){
       var on=calActive.has(name);
@@ -1505,7 +1523,7 @@ try{
       var pt=day.d.split("-");
       var dt=new Date(+pt[0],+pt[1]-1,+pt[2]);
       var isToday=(day.d===todayKey);
-      var items=day.items.filter(function(ev){ return calActive.has(ev.cal); });
+      var items=day.items.filter(function(ev){ return calEvBrigade(ev)===brigadeScope&&calActive.has(ev.cal); });
 
       // 這天原本就沒有行程 → 顯示「無行程」；
       // 這天有行程、但全部被篩選鈕關掉 → 整天跳過，不特別顯示，
@@ -1788,6 +1806,7 @@ try{
       if(day.d!==todayKey) return;
       day.items.forEach(function(ev){
         if(ev.allday||!ev.t) return;
+        if(calEvBrigade(ev)!==brigadeScope) return;   // 只播目前視角這個大隊自己的行事曆
         if(!calActive.has(ev.cal)) return;   // 被篩選鈕關掉的來源不播報
         var m=ev.t.match(/^(\d{2}):(\d{2})/);
         if(!m) return;
