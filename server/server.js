@@ -364,21 +364,23 @@ app.get("/api/duty", (req, res) => {
     data.countyDate = latestCounty.data.date;
   }
 
-  // 密碼保護清單、跑馬燈公告：只給「有哪些大隊設了密碼」與「公告
-  // 內容」，實際密碼絕不放進這個回應——密碼比對走 /api/check-brigade-
-  // password，不然任何人打開瀏覽器開發者工具的網路分頁就能直接看到
-  // 明文密碼，防手滑的功能就沒意義了。
-  data.gatedBrigades = sheetConfig ? sheetConfig.gatedBrigades() : [];
+  // 密碼保護清單、跑馬燈公告：只給「有哪些大隊／分隊設了密碼」與
+  // 「公告內容」，實際密碼絕不放進這個回應——密碼比對走
+  // /api/check-brigade-password，不然任何人打開瀏覽器開發者工具的
+  // 網路分頁就能直接看到明文密碼，防手滑的功能就沒意義了。
+  data.gatedNames = sheetConfig ? sheetConfig.gatedNames() : [];
   data.notices = sheetConfig ? sheetConfig.activeNotices() : [];
 
   res.json({ ok: true, receivedAt: latest ? latest.receivedAt : null, data: data });
 });
 
-/* ---------- 大隊切換密碼比對 ----------
-   純軟性保護：防止手滑切到別的大隊，不是真的資料隔離（/api/duty
-   本來就會把全縣資料一起回應給前端，這裡只是不讓畫面渲染出來）。
-   密碼本身只存在伺服器記憶體（從試算表讀來的），這支端點只回
-   true/false，不會把密碼內容回傳給前端。 */
+/* ---------- 大隊／分隊切換密碼比對 ----------
+   純軟性保護：防止手滑切到別的大隊或分隊，不是真的資料隔離
+   （/api/duty 本來就會把全縣資料一起回應給前端，這裡只是不讓畫面
+   渲染出來）。body.brigade 這個欄位名稱是歷史因素留下來的，實際上
+   傳大隊名稱或分隊名稱都可以，sheetConfig.checkPassword() 純粹是
+   字串比對，不在乎是哪一層級。密碼本身只存在伺服器記憶體（從試算表
+   讀來的），這支端點只回 true/false，不會把密碼內容回傳給前端。 */
 app.post("/api/check-brigade-password", (req, res) => {
   if (!sheetConfig) {
     return res.status(501).json({ ok: false, error: "密碼保護尚未啟用" });

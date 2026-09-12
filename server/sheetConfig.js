@@ -10,8 +10,15 @@
    環境變數（都選填、互相獨立，沒設定的那份功能就不生效）：
      CONFIG_PASSWORDS_URL   「密碼」分頁發布出來的 CSV 網址。
                             欄位：大隊、密碼。
-                            有一列「大隊」欄填「管理員」的，該列密碼
-                            可以解鎖全部大隊，供你自己查看用。
+                            「大隊」欄可以填大隊名稱（例如「台東大隊」），
+                            也可以直接填某個分隊的名稱（例如「台東
+                            分隊」）達到分隊層級的密碼保護——兩種是
+                            同一套機制。分隊密碼只保護「單獨選看該
+                            分隊」，選該分隊所屬大隊的「全部」視角不受
+                            影響，仍會顯示。有一列「大隊」欄填「管理員」
+                            的，該列密碼可以解鎖全部大隊／分隊，供你
+                            自己查看用。沒有列在這個分頁的大隊或分隊
+                            一律不設防，維持原本沒有這個功能時的行為。
      CONFIG_DEPTS_URL       「單位代碼」分頁發布出來的 CSV 網址。
                             欄位：單位代碼、單位名稱、所屬大隊。
                             用來把新增或改編的單位分類到正確大隊，
@@ -42,7 +49,7 @@ const CALENDARS_URL = process.env.CONFIG_CALENDARS_URL || "";
 const ADMIN_KEY = "管理員";
 const CAL_TAGS = ["t1", "t2", "t3"];   // 前端只定義了三種顏色的篩選鈕樣式，循環使用
 
-let passwordsCache = {};      // { 大隊名: 密碼 }，含 "管理員" 這個特殊 key
+let passwordsCache = {};      // { 大隊名或分隊名: 密碼 }，含 "管理員" 這個特殊 key
 let deptByIdCache = {};       // { 單位代碼: 所屬大隊 }
 let deptByNameCache = {};     // { 單位名稱: 所屬大隊 }
 let noticesCache = [];        // [{ text, targets:[大隊...] 或 ["ALL"] }]
@@ -195,21 +202,25 @@ function refreshConfig() {
   });
 }
 
-// 密碼保護只是「防手滑切錯大隊」的軟性提醒，不是真的資料隔離
+// 密碼保護只是「防手滑切錯單位」的軟性提醒，不是真的資料隔離
 // （/api/duty 本來就把全縣資料一起回傳給前端，前端只是不渲染而已）。
-// 管理員密碼可以解鎖全部大隊；其餘每個大隊各自比對自己的密碼。
-function checkPassword(brigade, password) {
+// 管理員密碼可以解鎖全部大隊／分隊；其餘每個名稱（大隊或分隊皆可）
+// 各自比對自己的密碼——這支函式不在乎 name 是大隊還是分隊，純粹是
+// 一個 key-value 比對，分隊層級的密碼保護能力就是靠這個特性達成的。
+function checkPassword(name, password) {
   if (!password) return { ok: false };
   if (passwordsCache[ADMIN_KEY] && password === passwordsCache[ADMIN_KEY]) {
     return { ok: true, admin: true };
   }
-  if (passwordsCache[brigade] && password === passwordsCache[brigade]) {
+  if (passwordsCache[name] && password === passwordsCache[name]) {
     return { ok: true, admin: false };
   }
   return { ok: false };
 }
 
-function gatedBrigades() {
+// 回傳所有設了密碼的名稱（大隊名或分隊名混在同一份清單，前端會分別
+// 用在「切到這個大隊」和「切到這個分隊」兩種情境的判斷上）。
+function gatedNames() {
   return Object.keys(passwordsCache).filter(function (k) { return k !== ADMIN_KEY; });
 }
 
@@ -235,7 +246,7 @@ function status() {
     deptsConfigured: !!DEPTS_URL,
     noticesConfigured: !!NOTICES_URL,
     calendarsConfigured: !!CALENDARS_URL,
-    gatedBrigades: gatedBrigades(),
+    gatedNames: gatedNames(),
     hasAdminPassword: !!passwordsCache[ADMIN_KEY],
     deptCount: Object.keys(deptByIdCache).length,
     noticeCount: noticesCache.length,
@@ -248,7 +259,7 @@ function status() {
 module.exports = {
   refreshConfig: refreshConfig,
   checkPassword: checkPassword,
-  gatedBrigades: gatedBrigades,
+  gatedNames: gatedNames,
   resolveBrigadeById: resolveBrigadeById,
   resolveBrigadeByName: resolveBrigadeByName,
   activeNotices: activeNotices,

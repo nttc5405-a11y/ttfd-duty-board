@@ -147,12 +147,32 @@ body{
   from{transform:translateX(0)}
   to{transform:translateX(-100%)}
 }
-/* .marquee 和 .outbar 都用 hidden 屬性＋JS 切換來控制顯示／隱藏，
-   但兩者各自的 display:flex 規則跟瀏覽器內建的 [hidden]{display:none}
-   規則同樣特異度、又排在後面，會直接蓋掉 hidden 屬性本來該有的效果
-   ——實測發現 .outbar 因此其實從來沒有真的隱藏過，即使沒有人出勤，
-   畫面上仍留著一條空的粉紅色細條。這裡用特異度更高的規則修正兩者。 */
-.marquee[hidden],.outbar[hidden]{display:none}
+/* .marquee、.outbar、.lockpanel 都用 hidden 屬性＋JS 切換來控制
+   顯示／隱藏，但各自的 display 規則跟瀏覽器內建的
+   [hidden]{display:none} 規則同樣特異度、又排在後面，會直接蓋掉
+   hidden 屬性本來該有的效果——實測發現 .outbar 因此其實從來沒有真的
+   隱藏過，即使沒有人出勤，畫面上仍留著一條空的粉紅色細條。這裡用
+   特異度更高的規則修正。 */
+.marquee[hidden],.outbar[hidden],.lockpanel[hidden]{display:none}
+
+/* ================= 大隊密碼鎖定畫面 ================= */
+.lockpanel{
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+  padding:40px var(--pad);
+  text-align:center;
+}
+.lock-icon{font-size:34px}
+.lock-text{
+  max-width:32em;
+  font-size:clamp(13px,1vw,16px);
+  color:var(--ink-2);
+}
+.lock-text b{color:var(--ink)}
+/* .ctrl-btn 定義在後面、有固定 width:36px，跟這裡同樣是單一 class
+   選擇器，比特異度會輸給後定義的 .ctrl-btn——用 .ctrl-btn.lock-btn
+   兩個 class 疊加提高特異度，才能真的蓋掉寬度，不然按鈕文字會被
+   36px 的寬度擠成一字一行直直排下去。 */
+.ctrl-btn.lock-btn{width:auto;padding:0 18px;font-size:clamp(12px,.9vw,15px);white-space:nowrap}
 
 /* ================= 告示 ================= */
 .notice{
@@ -630,6 +650,12 @@ try{
   </div>
 </div>
 
+<div class="lockpanel" id="lockpanel" hidden>
+  <div class="lock-icon">🔒</div>
+  <div class="lock-text"><b id="lockbrigadename">成功大隊</b> 已設定密碼保護，需要輸入密碼才能顯示勤務內容。</div>
+  <button type="button" class="ctrl-btn lock-btn" id="unlockBtn">輸入密碼解鎖</button>
+</div>
+
 <div class="marquee" id="marquee" hidden>
   <span class="marquee-icon">📣</span>
   <div class="marquee-track"><span class="marquee-text" id="marqueetext"></span></div>
@@ -956,15 +982,26 @@ try{
   var brigadeScope="成功大隊";
   try{ brigadeScope=localStorage.getItem(BRIGADE_SCOPE_KEY)||"成功大隊"; }catch(e){}
 
-  /* ---- 切換大隊的密碼保護（試算表管理，見 sheetConfig.js） ----
-     這只是「防手滑切錯大隊」的軟性提醒，不是真的資料隔離——伺服器
-     本來就把全縣資料一起回傳，這裡只是不讓畫面渲染出來。成功大隊
-     自己（預設視角）不設防；GATED_BRIGADES 是伺服器告訴我們「哪些
-     大隊設了密碼」，實際密碼絕不會出現在前端，比對都是打
-     /api/check-brigade-password 問伺服器。答對一次就記住（存
-     localStorage），同一台裝置以後不用再輸入；答對「管理員」密碼
-     則整台裝置以後全部大隊都不用再問。 */
-  var GATED_BRIGADES=[];
+  /* ---- 切換大隊／分隊的密碼保護（試算表管理，見 sheetConfig.js） ----
+     這只是「防手滑切錯單位」的軟性提醒，不是真的資料隔離——伺服器
+     本來就把全縣資料一起回傳，這裡只是不讓畫面渲染出來。「密碼」
+     分頁的「大隊」欄可以填大隊名稱（例如「台東大隊」），也可以直接
+     填某個分隊的名稱（例如「台東分隊」）——兩種是同一套機制、同一個
+     GATED_NAMES 清單，沒有列進去的名稱一律不設防（這是預設值，沒
+     設定密碼的大隊／分隊完全不受影響，跟這個功能出現以前一樣）。
+     分隊密碼只保護「單獨選看該分隊」這個動作；選該分隊所屬大隊的
+     「全部（大隊視角）」時，總覽內容照樣看得到那個分隊，不會被卡住
+     ——這是刻意的設計，因為「大隊視角」是整個大隊的巨觀總覽，不應該
+     被底下某一個分隊的密碼卡住看不到。
+     實際密碼絕不會出現在前端，比對都是打 /api/check-brigade-password
+     問伺服器。答對一次就記住（存 localStorage），同一台裝置以後
+     不用再輸入；答對「管理員」密碼則整台裝置以後全部大隊／分隊都
+     不用再問。
+     成功大隊如果也設了密碼，代表這台裝置一開機顯示的預設畫面就會
+     被鎖住——切換用的下拉選單仍然可以正常操作（不受鎖定影響），只有
+     實際勤務內容（總覽帶／編組卡／當日勤務／未到勤／即時出勤／
+     跑馬燈）會被蓋住，直到輸入正確密碼。 */
+  var GATED_NAMES=[];
   var ADMIN_UNLOCK_KEY="ttfd_admin_unlocked_v1";
   var UNLOCKED_BRIGADES_KEY="ttfd_unlocked_brigades_v1";
 
@@ -981,12 +1018,76 @@ try{
       try{ localStorage.setItem(UNLOCKED_BRIGADES_KEY,JSON.stringify(arr)); }catch(e){}
     }
   }
-  function isBrigadeUnlocked(b){
-    if(b==="成功大隊") return true;
+  // 通用的「這個名稱（大隊或分隊皆可）解鎖了嗎」判斷，名稱沒出現在
+  // GATED_NAMES（沒設密碼）一律視為解鎖——這就是「不設密碼＝完全不受
+  // 影響」的預設邏輯，新增分隊密碼保護不會動到任何既有、沒設密碼的
+  // 大隊或分隊。
+  function isBrigadeUnlocked(name){
     if(isAdminUnlocked()) return true;
-    if(GATED_BRIGADES.indexOf(b)<0) return true;   // 這個大隊沒設密碼
-    return getUnlockedBrigades().indexOf(b)>=0;
+    if(GATED_NAMES.indexOf(name)<0) return true;   // 沒設密碼，預設不受影響
+    return getUnlockedBrigades().indexOf(name)>=0;
   }
+
+  // 目前選擇（大隊＋分隊）裡，還有哪個名稱被鎖住、尚未解鎖——
+  // 先看大隊本身，再看「選了特定分隊」時那個分隊自己的密碼；選
+  // 「全部（大隊視角）」時不檢查分隊密碼，符合上面說明的設計。
+  // 沒有任何東西被鎖住則回傳 null。
+  function currentLockTarget(){
+    if(!isBrigadeUnlocked(brigadeScope)) return brigadeScope;
+    if(unitScope!=="ALL"&&!isBrigadeUnlocked(unitScope)) return unitScope;
+    return null;
+  }
+
+  // 目前畫面正在顯示的內容有沒有被鎖住（大隊或選到的分隊，設了密碼
+  // 但這台裝置還沒解鎖）。跟 isBrigadeUnlocked() 分開命名是為了讓
+  // 呼叫端讀起來清楚是在問「現在這個畫面」而不是「任意一個名稱」。
+  function isCurrentlyLocked(){
+    return currentLockTarget()!==null;
+  }
+
+  // 依目前鎖定狀態顯示／隱藏鎖定面板與實際勤務內容。純粹切換
+  // display，不重新渲染——資料本來就已經算好、畫在 DOM 裡，鎖定只是
+  // 不讓它顯示出來（跟這個功能一貫的「軟性保護」定位一致）。
+  function refreshLockUI(){
+    var target=currentLockTarget();
+    var locked=target!==null;
+    var panel=document.getElementById("lockpanel");
+    if(panel){
+      panel.hidden=!locked;
+      var nameEl=document.getElementById("lockbrigadename");
+      if(nameEl) nameEl.textContent=target||brigadeScope;
+    }
+    [document.getElementById("strip"),document.querySelector(".board")].forEach(function(el){
+      if(el) el.style.display=locked?"none":"";
+    });
+    // outbar／marquee 各自有自己一套「有沒有內容」的顯示邏輯（見
+    // renderOutStatus()／renderNoticeBar()），鎖定時用 inline style
+    // 強制蓋掉；解鎖時清空 inline style，讓它們自己的邏輯重新接手，
+    // 不要在這裡直接寫 display:flex，否則會蓋掉「其實沒內容該隱藏」
+    // 的情況。
+    [document.getElementById("outbar"),document.getElementById("marquee")].forEach(function(el){
+      if(el) el.style.display=locked?"none":"";
+    });
+  }
+
+  function tryUnlockCurrentBrigade(){
+    var target=currentLockTarget();
+    if(!target){ refreshLockUI(); return; }
+    var pw=prompt("「"+target+"」已設定密碼保護，請輸入密碼：");
+    if(pw==null) return;
+    checkBrigadePassword(target,pw).then(function(res){
+      if(res&&res.ok){
+        if(res.admin){ try{ localStorage.setItem(ADMIN_UNLOCK_KEY,"1"); }catch(e){} }
+        else{ unlockBrigade(target); }
+        refreshLockUI();
+      }else{
+        alert("密碼不正確。");
+      }
+    }).catch(function(){
+      alert("無法連線驗證密碼，請稍後再試。");
+    });
+  }
+
   function checkBrigadePassword(brigade,password){
     return fetch("/api/check-brigade-password",{
       method:"POST",
@@ -1084,10 +1185,16 @@ try{
 
     applyBrigadeScope();
 
+    // 選單裡先讓看得出「這個大隊／分隊需要密碼」，答對過的（或管理員
+    // 解鎖過的）就不再顯示鎖頭，避免使用者選了才發現要輸入密碼。
+    function lockSuffix(name){
+      return (GATED_NAMES.indexOf(name)>=0&&!isBrigadeUnlocked(name))?" 🔒":"";
+    }
+
     var html='<optgroup label="成功大隊">';
-    html+='<option value="成功大隊|ALL"'+((brigadeScope==="成功大隊"&&unitScope==="ALL")?" selected":"")+'>全部（成功大隊視角）</option>';
+    html+='<option value="成功大隊|ALL"'+((brigadeScope==="成功大隊"&&unitScope==="ALL")?" selected":"")+'>全部（成功大隊視角）'+lockSuffix("成功大隊")+"</option>";
     hqNames.forEach(function(n){
-      html+='<option value="成功大隊|'+esc(n)+'"'+((brigadeScope==="成功大隊"&&unitScope===n)?" selected":"")+'>'+esc(n)+"</option>";
+      html+='<option value="成功大隊|'+esc(n)+'"'+((brigadeScope==="成功大隊"&&unitScope===n)?" selected":"")+'>'+esc(n)+lockSuffix(n)+"</option>";
     });
     html+="</optgroup>";
 
@@ -1095,9 +1202,9 @@ try{
       var names=COUNTY_UNITS.filter(function(u){ return u.brigade===b; }).map(function(u){ return u.name; });
       if(!names.length) return;   // 該大隊還沒有資料就先不列出
       html+='<optgroup label="'+esc(b)+'">';
-      html+='<option value="'+esc(b)+'|ALL"'+((brigadeScope===b&&unitScope==="ALL")?" selected":"")+'>全部（'+esc(b)+'視角）</option>';
+      html+='<option value="'+esc(b)+'|ALL"'+((brigadeScope===b&&unitScope==="ALL")?" selected":"")+'>全部（'+esc(b)+'視角）'+lockSuffix(b)+"</option>";
       names.forEach(function(n){
-        html+='<option value="'+esc(b)+'|'+esc(n)+'"'+((brigadeScope===b&&unitScope===n)?" selected":"")+'>'+esc(n)+"</option>";
+        html+='<option value="'+esc(b)+'|'+esc(n)+'"'+((brigadeScope===b&&unitScope===n)?" selected":"")+'>'+esc(n)+lockSuffix(n)+"</option>";
       });
       html+="</optgroup>";
     });
@@ -1105,55 +1212,35 @@ try{
     sel.innerHTML=html;
     sel.classList.toggle("scoped",!(brigadeScope==="成功大隊"&&unitScope==="ALL"));
 
+    // 切換一律直接生效（不管有沒有密碼），要不要卡住畫面完全交給
+    // refreshLockUI() 判斷——這樣密碼保護不管是「大隊」還是「分隊」
+    // 層級都走同一套鎖定畫面／解鎖按鈕，不用在這裡重複寫一次密碼
+    // 檢查邏輯（見 currentLockTarget()／tryUnlockCurrentBrigade()）。
+    // 換句話說：選單永遠選得動，被鎖住的是「畫面內容」不是「選單」。
     sel.onchange=function(){
       var parts=sel.value.split("|");
-      var newBrigade=parts[0], newUnit=parts[1]||"ALL";
-      var prevBrigade=brigadeScope, prevUnit=unitScope;
-
-      function commitSwitch(){
-        brigadeScope=newBrigade; unitScope=newUnit;
-        try{
-          localStorage.setItem(BRIGADE_SCOPE_KEY,brigadeScope);
-          localStorage.setItem(UNIT_SCOPE_KEY,unitScope);
-        }catch(e){}
-        applyBrigadeScope();
-        sel.classList.toggle("scoped",!(brigadeScope==="成功大隊"&&unitScope==="ALL"));
-        // 切換分隊不影響總覽帶（本來就是同一個大隊）；但切換大隊會整個
-        // 換掉 UNITS，總覽帶（大隊人力總覽）也要跟著重繪，不然會停在
-        // 上一個大隊的數字。
-        renderStrip();
-        renderSquads(currentSlotKey());
-        renderLeave();
-        renderTasks(new Date());
-        renderOutStatus();
-        renderNoticeBar();
-        // 行事曆來源可能因大隊而異（見 sheetConfig.js 的 CONFIG_CALENDARS_URL），
-        // 篩選鈕清單跟目前顯示的行程都要跟著重算，不然會停在上一個大隊的內容。
-        rebuildCalIndex();
-        renderCalFilterChips();
-        renderCal(new Date());
-      }
-
-      if(isBrigadeUnlocked(newBrigade)){
-        commitSwitch();
-        return;
-      }
-
-      var pw=prompt("切換到「"+newBrigade+"」需要密碼：");
-      if(pw==null){ sel.value=prevBrigade+"|"+prevUnit; return; }   // 使用者取消
-      checkBrigadePassword(newBrigade,pw).then(function(res){
-        if(res&&res.ok){
-          if(res.admin){ try{ localStorage.setItem(ADMIN_UNLOCK_KEY,"1"); }catch(e){} }
-          else{ unlockBrigade(newBrigade); }
-          commitSwitch();
-        }else{
-          alert("密碼不正確，無法切換大隊。");
-          sel.value=prevBrigade+"|"+prevUnit;
-        }
-      }).catch(function(){
-        alert("無法連線驗證密碼，請稍後再試。");
-        sel.value=prevBrigade+"|"+prevUnit;
-      });
+      brigadeScope=parts[0]; unitScope=parts[1]||"ALL";
+      try{
+        localStorage.setItem(BRIGADE_SCOPE_KEY,brigadeScope);
+        localStorage.setItem(UNIT_SCOPE_KEY,unitScope);
+      }catch(e){}
+      applyBrigadeScope();
+      sel.classList.toggle("scoped",!(brigadeScope==="成功大隊"&&unitScope==="ALL"));
+      // 切換分隊不影響總覽帶（本來就是同一個大隊）；但切換大隊會整個
+      // 換掉 UNITS，總覽帶（大隊人力總覽）也要跟著重繪，不然會停在
+      // 上一個大隊的數字。
+      renderStrip();
+      renderSquads(currentSlotKey());
+      renderLeave();
+      renderTasks(new Date());
+      renderOutStatus();
+      renderNoticeBar();
+      // 行事曆來源可能因大隊而異（見 sheetConfig.js 的 CONFIG_CALENDARS_URL），
+      // 篩選鈕清單跟目前顯示的行程都要跟著重算，不然會停在上一個大隊的內容。
+      rebuildCalIndex();
+      renderCalFilterChips();
+      renderCal(new Date());
+      refreshLockUI();
     };
   }
 
@@ -1741,7 +1828,7 @@ try{
 
         // 密碼保護名單、跑馬燈公告，見 sheetConfig.js。伺服器沒設定
         // 這兩個功能時欄位就是空陣列，跟現有其他選填功能一致。
-        if(Array.isArray(d.gatedBrigades)) GATED_BRIGADES=d.gatedBrigades;
+        if(Array.isArray(d.gatedNames)) GATED_NAMES=d.gatedNames;
         if(Array.isArray(d.notices)) BOARD_NOTICES=d.notices;
 
         applyBrigadeScope();   // 先把 UNITS/TASKS/OUT_STATUS 指到目前選的大隊，渲染才會對
@@ -1750,6 +1837,7 @@ try{
         renderUnitSelector();
         renderOutStatus();
         renderNoticeBar();
+        refreshLockUI();
         lastKey=null; lastMin=-1;   // 強制重繪
         tick();
       })
@@ -1871,6 +1959,9 @@ try{
     };
   })();
 
+  var unlockBtn=document.getElementById("unlockBtn");
+  if(unlockBtn) unlockBtn.onclick=tryUnlockCurrentBrigade;
+
   applyBrigadeScope();
   renderStrip();
   renderLeave();
@@ -1879,6 +1970,7 @@ try{
   renderSlotSelector();
   renderOutStatus();
   renderNoticeBar();
+  refreshLockUI();
   tick();
   setInterval(tick,1000);
   setInterval(checkFreshness,60*1000);   // 每分鐘檢查一次資料是否太久沒更新
