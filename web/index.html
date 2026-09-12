@@ -984,7 +984,7 @@ try{
     applyBrigadeScope();
 
     var html='<optgroup label="成功大隊">';
-    html+='<option value="成功大隊|ALL"'+((brigadeScope==="成功大隊"&&unitScope==="ALL")?" selected":"")+'>全部（大隊視角）</option>';
+    html+='<option value="成功大隊|ALL"'+((brigadeScope==="成功大隊"&&unitScope==="ALL")?" selected":"")+'>全部（成功大隊視角）</option>';
     hqNames.forEach(function(n){
       html+='<option value="成功大隊|'+esc(n)+'"'+((brigadeScope==="成功大隊"&&unitScope===n)?" selected":"")+'>'+esc(n)+"</option>";
     });
@@ -1043,7 +1043,11 @@ try{
     if(!sel) return;
 
     var html='<option value=""'+(!slotOverride?" selected":"")+'>目前時段（即時）</option>';
-    for(var h=0;h<24;h++){
+    // 時段順序從 08-09 排到 23-24，再接 00-01 到 07-08——跟交接班時間
+    // （08:00）對齊，也是 ttfd2 畫面本身排列時段的順序，不是行事曆式
+    // 從午夜開始。
+    for(var i=0;i<24;i++){
+      var h=(8+i)%24;
       var k=slotKey(h);
       html+='<option value="'+k+'"'+(slotOverride===k?" selected":"")+'>'+k.replace("-"," – ")+"</option>";
     }
