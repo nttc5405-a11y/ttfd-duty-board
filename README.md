@@ -146,6 +146,17 @@ iCal 訂閱網址本身就是通行證，Render 伺服器自己每 12 小時去�
       看板因此可能卡在沒資料狀態長達數小時。改成偵測到這個情況就
       立刻自動補跑一次完整採集，把沒資料的時間縮短到約一分鐘內。
       **注意：這無法讓 Render 完全不休眠，只是縮短恢復時間**
+- [x] 全縣多大隊視角（2026-09-12）：局本部帳號能看到的全縣 34 個
+      單位（台東大隊、關山大隊、大武大隊、成功大隊、局本部旗下，
+      見 `docs/API筆記.md` 第九節的完整對照表），透過另一支完全
+      獨立的採集器（`collector/collector-county.js` /
+      `collector-county.user.js` / `collector-county-bookmarklet.txt`）
+      查詢、推送到 `/api/push-county`，跟成功大隊自己的資料
+      （`/api/push`）完全分開存放、互不影響。看板右上角選單新增
+      大隊分組（optgroup），選了其他大隊會切換 `UNITS`/`TASKS`/
+      `OUT_STATUS` 顯示該大隊的資料，成功大隊自己的視角（含分隊
+      細看）完全不受影響。全縣採集器需要用局本部帳號另外設一組
+      Tampermonkey + Windows 工作排程器，尚未完成自動化排程設定
 - [x] Google 行事曆改為伺服器自動排程更新（每 12 小時，見
       `server/calendar.js` + `server.js` 的 `CAL_ICS_URL_*` 環境變數）。
       用日曆的 iCal 訂閱網址讀取，不需要登入、不需要人操作；沒設定

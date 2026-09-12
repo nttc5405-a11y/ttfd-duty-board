@@ -12,6 +12,12 @@
       不想等自動排程的話，開 /api/cal-refresh?token=PUSH_TOKEN
       可以立刻手動觸發一次。
 
+   4. 全縣多大隊資料：局本部帳號的採集器（collector-county.js）
+      POST 到 /api/push-county，存成完全獨立的一份資料
+      （latestCounty，不影響成功大隊自己的 latest），一起併入
+      /api/duty 的回應（countyUnits／countyTasks／countyOutStatus
+      欄位），看板前端依需要切換顯示。
+
    環境變數（在 Render 的 Environment 設定）：
      PUSH_TOKEN       必填。採集器送資料時要帶的通行碼，自己取一串亂碼。
      ALLOW_ORIGIN     選填。允許送資料進來的來源，預設 https://ttfd2.firemis.tw
@@ -58,6 +64,19 @@ try {
   console.log("[boot] 快取讀取失敗，忽略：" + e.message);
 }
 
+// 全縣多大隊資料，跟成功大隊自己的 latest 完全獨立存放。
+const CACHE_FILE_COUNTY = path.join("/tmp", "duty-county-latest.json");
+let latestCounty = null;
+
+try {
+  if (fs.existsSync(CACHE_FILE_COUNTY)) {
+    latestCounty = JSON.parse(fs.readFileSync(CACHE_FILE_COUNTY, "utf8"));
+    console.log("[boot] 已載入全縣資料前次快取，資料日期 " + (latestCounty.data && latestCounty.data.date));
+  }
+} catch (e) {
+  console.log("[boot] 全縣資料快取讀取失敗，忽略：" + e.message);
+}
+
 /* ---------- 行事曆：自己排程去讀，不需要人操作 ---------- */
 const CAL_SOURCES = [
   { name: "大隊", tag: "t1", url: process.env.CAL_ICS_URL_DAJI || "" },
@@ -96,7 +115,7 @@ app.use(express.json({ limit: "2mb" }));
 app.use((req, res, next) => {
   const origin = req.headers.origin || "";
 
-  if (req.path === "/api/push") {
+  if (req.path === "/api/push" || req.path === "/api/push-county") {
     // 只有勤務系統頁面能送資料進來
     if (origin === ALLOW_ORIGIN) {
       res.setHeader("Access-Control-Allow-Origin", origin);
@@ -124,6 +143,14 @@ function writeCache() {
     fs.writeFileSync(CACHE_FILE, JSON.stringify(latest), "utf8");
   } catch (e) {
     console.log("[push] 快取寫入失敗，不影響服務：" + e.message);
+  }
+}
+
+function writeCacheCounty() {
+  try {
+    fs.writeFileSync(CACHE_FILE_COUNTY, JSON.stringify(latestCounty), "utf8");
+  } catch (e) {
+    console.log("[push-county] 快取寫入失敗，不影響服務：" + e.message);
   }
 }
 
@@ -169,6 +196,50 @@ app.post("/api/push", (req, res) => {
   return res.status(400).json({ ok: false, error: "資料格式不符：需要 units（完整）或 outStatus（快速）" });
 });
 
+/* ---------- 收全縣多大隊資料 ----------
+   跟 /api/push 完全獨立的一組資料，用同一個 PUSH_TOKEN，形狀比照
+   辦理：完整推送帶 date + countyUnits，快速推送只帶 countyOutStatus。
+   彼此互不覆蓋，成功大隊自己的自動化完全不受影響。 */
+app.post("/api/push-county", (req, res) => {
+  if (!PUSH_TOKEN) {
+    return res.status(500).json({ ok: false, error: "伺服器尚未設定 PUSH_TOKEN" });
+  }
+  if (req.get("X-Push-Token") !== PUSH_TOKEN) {
+    return res.status(401).json({ ok: false, error: "通行碼不正確" });
+  }
+
+  const body = req.body;
+  if (!body) {
+    return res.status(400).json({ ok: false, error: "缺少資料內容" });
+  }
+
+  if (Array.isArray(body.countyUnits)) {
+    if (!body.date) {
+      return res.status(400).json({ ok: false, error: "資料格式不符：完整推送需要 date" });
+    }
+    latestCounty = {
+      receivedAt: new Date().toISOString(),
+      data: body
+    };
+    writeCacheCounty();
+    console.log("[push-county] 完整推送 " + body.date + "，單位 " + body.countyUnits.length + " 個");
+    return res.json({ ok: true, receivedAt: latestCounty.receivedAt, units: body.countyUnits.length });
+  }
+
+  if (Array.isArray(body.countyOutStatus)) {
+    if (!latestCounty) {
+      return res.status(409).json({ ok: false, error: "尚未有完整資料，請先執行一次完整採集" });
+    }
+    latestCounty.data.countyOutStatus = body.countyOutStatus;
+    latestCounty.data.countyOutStatusAt = new Date().toISOString();
+    writeCacheCounty();
+    console.log("[push-county] 快速推送即時出勤 " + body.countyOutStatus.length + " 人");
+    return res.json({ ok: true, outStatusAt: latestCounty.data.countyOutStatusAt, count: body.countyOutStatus.length });
+  }
+
+  return res.status(400).json({ ok: false, error: "資料格式不符：需要 countyUnits（完整）或 countyOutStatus（快速）" });
+});
+
 /* ---------- 即時出勤的單位名稱，每次供應資料時都重新校正 ----------
    即時出勤是「快速推送」，可能來自任何一個還開著的採集器分頁；如果
    那個分頁剛好在單位名稱還沒讀穩定時就送出（例如自動模式的時序
@@ -200,13 +271,19 @@ app.get("/api/duty", (req, res) => {
       hint: "請在隊部電腦登入勤務系統後執行採集器"
     });
   }
-  // 行事曆是伺服器自己排程抓的，跟採集器推送的資料分開維護，
-  // 這裡合併成同一份回應，看板端只要讀一個地方就好。
+  // 行事曆、全縣多大隊資料都是分開維護的，這裡合併成同一份回應，
+  // 看板端只要讀一個地方就好。
   var data = Object.assign({}, latest.data);
   data.outStatus = resolveOutStatusNames(data.units, data.outStatus);
   if (calCache) {
     data.cal = calCache.days;
     data.calFetchedAt = calCache.fetchedAt;
+  }
+  if (latestCounty) {
+    data.countyUnits = latestCounty.data.countyUnits;
+    data.countyTasks = latestCounty.data.countyTasks;
+    data.countyOutStatus = resolveOutStatusNames(latestCounty.data.countyUnits, latestCounty.data.countyOutStatus);
+    data.countyReceivedAt = latestCounty.receivedAt;
   }
   res.json({ ok: true, receivedAt: latest.receivedAt, data: data });
 });
@@ -246,6 +323,9 @@ app.get("/api/health", (req, res) => {
     ok: true,
     hasData: !!latest,
     receivedAt: latest ? latest.receivedAt : null,
+    hasCountyData: !!latestCounty,
+    countyReceivedAt: latestCounty ? latestCounty.receivedAt : null,
+    countyUnits: latestCounty ? latestCounty.data.countyUnits.length : 0,
     tokenConfigured: !!PUSH_TOKEN,
     calSources: CAL_SOURCES.map((s) => s.name),
     calFetchedAt: calCache ? calCache.fetchedAt : null,

@@ -1,28 +1,35 @@
 // ==UserScript==
-// @name         勤務看板自動採集器
+// @name         全縣勤務看板自動採集器（局本部帳號）
 // @namespace    ttfd-duty-board
 // @version      1.0
-// @description  進到 ttfd2 頁面就自動執行採集器，不需要手動點書籤。配合 Windows 排程器每天固定時間開啟頁面，達到「重新整理頁面＋觸發採集」全自動化。
+// @description  進到 ttfd2 頁面就自動執行全縣採集器，不需要手動點書籤。配合 Windows 排程器每天固定時間開啟頁面，達到全自動化。跟成功大隊那支自動採集器（collector.user.js）完全獨立，互不影響，適合裝在局本部帳號常駐使用的那台電腦／瀏覽器設定檔上。
 // @match        https://ttfd2.firemis.tw/*
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==
 
 /* ============================================================
-   這份檔案的邏輯跟 collector.js 完全一樣，只是多包了上面那段
-   Tampermonkey 設定標頭，讓它從「手動點書籤才執行」變成「頁面
-   一打開就自動執行」。改動採集邏輯只要改 collector.js 那份，
-   這裡跟著同步貼過來即可，避免兩份邏輯各自修改、越改越不一樣。
+   全縣勤務看板採集器（局本部帳號專用，自動模式）
 
-   @grant none 這行很重要：讓腳本跑在頁面「原生」的執行環境裡，
-   不是 Tampermonkey 預設的隔離沙盒——沒有這行，程式碼裡攔截
-   Authorization 標頭用的 fetch/XMLHttpRequest 改寫會抓不到頁面
-   自己發出的請求，整支腳本會失效。
+   跟成功大隊自己用的自動採集器（collector.user.js）是完全獨立、
+   互不影響的兩支程式，差異只在：
+   1. 查詢時不帶 depts 篩選（送空陣列），系統會回傳「這個帳號看得到
+      的全部單位」——用局本部帳號查會拿到全縣 34 個單位，不是只有
+      成功大隊自己的 6 個（已用探測書籤實測確認，見
+      docs/API筆記.md 第九節）
+   2. 每個單位額外標記所屬大隊（BRIGADE_BY_DEPT），供看板依大隊分組
+      顯示
+   3. 推送到伺服器的欄位名稱不同（countyUnits／countyTasks／
+      countyOutStatus，不是 units／tasks／outStatus），伺服器會存成
+      完全獨立的一份資料，不會跟成功大隊自己的資料互相覆蓋
 
-   第一次執行仍然會問 Render 網址與通行碼（用 prompt 對話框）。
-   排程情境沒有人在螢幕前，對話框會卡住——所以務必先用書籤版
-   手動跑過一次、把設定存進這台電腦的瀏覽器後，才開始排程，
-   之後就不會再跳出對話框。
+   其餘邏輯（取得授權、交接班日期判斷、多分頁協調、伺服器沒資料時
+   自動補跑）跟成功大隊的自動採集器完全比照辦理，這些是已經驗證過
+   有效的修正，不重新發明。
+
+   自動模式不能用 prompt() 卡住等輸入——排程執行時沒有人在螢幕前
+   應答。如果 localStorage 裡還沒存過網址／通行碼（代表這台電腦、
+   這個瀏覽器從來沒有用書籤版跑過一次），就直接顯示錯誤、不啟動。
    ============================================================ */
 
 (function () {
@@ -30,24 +37,53 @@
   var CFG_URL = "__board_endpoint";
   var CFG_TOK = "__board_token";
 
-  // 完整資料的自動更新間隔。勤務表修正不頻繁，不需要更密集；拉長
-  // 間隔也降低系統登入授權過期、每次都要重新攔截的機率。
   var PUSH_INTERVAL_MS = 4 * 60 * 60 * 1000;
-
-  // 即時出勤狀態的更新間隔，比完整資料短，因為這塊是分秒在變的
-  // 即時狀態，但也不需要短於看板本身向伺服器要資料的頻率（5 分鐘），
-  // 短於那個看板也不會更快顯示，只是白白多打請求。
   var OUT_STATUS_INTERVAL_MS = 30 * 60 * 1000;
 
-  // 成功大隊及所屬 5 個分隊的單位 ID（取自系統前端自身的查詢條件）
-  var DEPTS = [
-    "5ee1d63d1679e1139fe2bbe2",
-    "593f83d2a326a612c81cfca4",
-    "593f8339a326a612c81cfc9d",
-    "593f841ba326a612c81cfca5",
-    "593f83c1a326a612c81cfca3",
-    "5a5d9641ff615e83c6001f56"
-  ];
+  // 全縣 34 個單位的大隊對照（見 docs/API筆記.md 第九節，用局本部
+  // 帳號探測 shift/list 省略 depts 篩選的回應，比對畫面單位/主管
+  // 欄位確認）。局本部旗下 3 個單位沒有自己的「大隊」，歸在「局本部」
+  // 這個群組底下；其餘 4 個大隊各自的「大隊」本身也算進自己那組。
+  var BRIGADE_BY_DEPT = {
+    "593eccb1fff0d617e493b68c": "局本部",
+    "593f851fa326a612c81cfcb3": "局本部",
+    "696808ca4e790948451ed8eb": "局本部",
+
+    "593f82a5a326a612c81cfc99": "台東大隊",
+    "593f82d7a326a612c81cfc9a": "台東大隊",
+    "696807ff4e790948451ed895": "台東大隊",
+    "593f8303a326a612c81cfc9c": "台東大隊",
+    "633bbc5e50266a462b420906": "台東大隊",
+    "593f82e9a326a612c81cfc9b": "台東大隊",
+    "593f8593a326a612c81cfcb8": "台東大隊",
+    "593f8453a326a612c81cfca8": "台東大隊",
+    "5a5dd762ff615e83c6001f66": "台東大隊",
+    "696808634e790948451ed8bf": "台東大隊",
+    "593f8465a326a612c81cfca9": "台東大隊",
+    "593f8580a326a612c81cfcb7": "台東大隊",
+
+    "593f835aa326a612c81cfc9e": "關山大隊",
+    "593f8381a326a612c81cfca0": "關山大隊",
+    "593f839ca326a612c81cfca1": "關山大隊",
+    "593f83b0a326a612c81cfca2": "關山大隊",
+    "593f8478a326a612c81cfcaa": "關山大隊",
+    "593f85d0a326a612c81cfcbb": "關山大隊",
+    "593f85e7a326a612c81cfcbc": "關山大隊",
+
+    "593f836aa326a612c81cfc9f": "大武大隊",
+    "593f8443a326a612c81cfca7": "大武大隊",
+    "593f853fa326a612c81cfcb4": "大武大隊",
+    "593f855ca326a612c81cfcb5": "大武大隊",
+    "593f8431a326a612c81cfca6": "大武大隊",
+    "5d8b35b1effb7b7968d08aab": "大武大隊",
+
+    "593f8339a326a612c81cfc9d": "成功大隊",
+    "5ee1d63d1679e1139fe2bbe2": "成功大隊",
+    "593f83d2a326a612c81cfca4": "成功大隊",
+    "5a5d9641ff615e83c6001f56": "成功大隊",
+    "593f83c1a326a612c81cfca3": "成功大隊",
+    "593f841ba326a612c81cfca5": "成功大隊"
+  };
 
   function p2(n) { return n < 10 ? "0" + n : "" + n; }
 
@@ -55,11 +91,11 @@
 
   var box, log;
   function ui() {
-    var old = document.getElementById("__collector__");
+    var old = document.getElementById("__countyCollector__");
     if (old) old.parentNode.removeChild(old);
 
     box = document.createElement("div");
-    box.id = "__collector__";
+    box.id = "__countyCollector__";
     box.style.cssText =
       "position:fixed;right:14px;bottom:14px;z-index:2147483647;width:440px;max-width:92vw;" +
       "background:#12181f;color:#e8eef4;border:1px solid #3a4a5a;border-radius:6px;" +
@@ -69,7 +105,7 @@
     head.style.cssText =
       "display:flex;align-items:center;gap:8px;padding:9px 12px;background:#1b2530;" +
       "border-bottom:1px solid #3a4a5a;font-weight:700";
-    head.appendChild(document.createTextNode("勤務看板採集器（自動模式 v13）"));
+    head.appendChild(document.createTextNode("全縣勤務看板採集器（自動模式 v1）"));
 
     var stop = document.createElement("button");
     stop.textContent = "停止並關閉";
@@ -77,10 +113,10 @@
       "margin-left:auto;background:#7E2019;color:#fff;border:0;border-radius:3px;" +
       "padding:5px 12px;font-size:12px;cursor:pointer";
     stop.onclick = function () {
-      if (window.__collectTimer) clearTimeout(window.__collectTimer);
-      if (window.__collectOutTimer) clearInterval(window.__collectOutTimer);
-      window.__collectTimer = null;
-      window.__collectOutTimer = null;
+      if (window.__countyCollectTimer) clearTimeout(window.__countyCollectTimer);
+      if (window.__countyCollectOutTimer) clearInterval(window.__countyCollectOutTimer);
+      window.__countyCollectTimer = null;
+      window.__countyCollectOutTimer = null;
       box.parentNode.removeChild(box);
     };
     head.appendChild(stop);
@@ -103,24 +139,19 @@
     log.scrollTop = log.scrollHeight;
   }
 
-  /* ---------- 取得授權標頭 ----------
-     不讀帳號密碼。這個系統把授權權杖只放在網頁的記憶體裡（不落地存
-     localStorage / sessionStorage / Cookie，已實測確認），所以改用
-     「在旁邊看」的方式：攔截頁面自己發出的請求，取得它使用的
-     Authorization 標頭值，沿用來發我們自己的查詢。
-     權杖只存在這次執行的記憶體裡，重新整理頁面就消失，不落地存檔。 */
+  /* ---------- 取得授權標頭（跟 collector.js 完全比照辦理） ---------- */
 
   function installAuthWatcher() {
-    if (window.__collectorPatched) return;
-    window.__collectorPatched = true;
-    window.__collectorAuth = window.__collectorAuth || null;
-    window.__collectorWaiters = [];
+    if (window.__countyCollectorPatched) return;
+    window.__countyCollectorPatched = true;
+    window.__countyAuth = window.__countyAuth || null;
+    window.__countyWaiters = [];
 
     function got(v) {
-      if (!v || window.__collectorAuth === v) return;
-      window.__collectorAuth = v;
-      var ws = window.__collectorWaiters;
-      window.__collectorWaiters = [];
+      if (!v || window.__countyAuth === v) return;
+      window.__countyAuth = v;
+      var ws = window.__countyWaiters;
+      window.__countyWaiters = [];
       ws.forEach(function (fn) { fn(v); });
     }
 
@@ -151,12 +182,12 @@
 
   function waitForAuth(timeoutMs) {
     return new Promise(function (resolve, reject) {
-      if (window.__collectorAuth) return resolve(window.__collectorAuth);
+      if (window.__countyAuth) return resolve(window.__countyAuth);
       var done = false;
       var to = setTimeout(function () {
         if (done) return;
         done = true;
-        window.__collectorWaiters = (window.__collectorWaiters || []).filter(function (f) { return f !== onGot; });
+        window.__countyWaiters = (window.__countyWaiters || []).filter(function (f) { return f !== onGot; });
         reject(new Error("等待逾時"));
       }, timeoutMs);
       function onGot(v) {
@@ -165,12 +196,11 @@
         clearTimeout(to);
         resolve(v);
       }
-      window.__collectorWaiters = window.__collectorWaiters || [];
-      window.__collectorWaiters.push(onGot);
+      window.__countyWaiters = window.__countyWaiters || [];
+      window.__countyWaiters.push(onGot);
     });
   }
 
-  // 自動點一下畫面上的「查詢」按鈕，觸發系統送出一次帶授權的請求
   function clickQueryButton() {
     var nodes = document.querySelectorAll("button, a, [role='button']");
     for (var i = 0; i < nodes.length; i++) {
@@ -187,11 +217,6 @@
     return false;
   }
 
-  // 跟 waitForNameMap() 同一個道理：自動模式一開頁面就立刻嘗試點
-  // 「查詢」按鈕，這時候 Angular 路由可能還沒渲染出按鈕，只檢查一次
-  // 找不到就放棄，會導致後面誤用「其他背景請求剛好夾帶的授權」
-  // （可能是尚未完整、或範圍不對的權杖），打 shift/list 直接 401。
-  // 正解：跟讀表格一樣用輪詢，多等幾秒讓按鈕真的出現再點。
   function waitForQueryClick(maxWaitMs) {
     return new Promise(function (resolve) {
       var waited = 0, step = 300;
@@ -206,14 +231,14 @@
 
   function getAuth() {
     installAuthWatcher();
-    if (window.__collectorAuth) return Promise.resolve(window.__collectorAuth);
+    if (window.__countyAuth) return Promise.resolve(window.__countyAuth);
 
     say("嘗試自動觸發查詢以取得授權…");
     return waitForQueryClick(10000).then(function (clicked) {
-      say(clicked ? "已自動點擊查詢，等待系統回應…" : "找不到查詢按鈕，可能不在勤務表列表頁。", clicked ? null : "#F2A93B");
+      say(clicked ? "已自動點擊查詢，等待系統回應…" : "找不到查詢按鈕，請手動按一次頁面上的「查詢」。", clicked ? null : "#F2A93B");
 
       return waitForAuth(15000).catch(function () {
-        say("尚未取得授權，60 秒內若頁面切到勤務表列表頁會自動重試一次。", "#F2A93B");
+        say("尚未取得授權，請確認已登入並停在勤務表列表頁，手動按一次「查詢」。", "#F2A93B");
         return waitForAuth(60000);
       });
     });
@@ -241,7 +266,6 @@
   function transform(row, d, name) {
     var items = (d.items && d.items.length) ? d.items : ["值班", "備勤", "休息"];
     var calls = d.calls || [];
-    // 畫面欄位順序：值班 → 各車 → 備勤 → 休息
     var cols = [items[0]].concat(calls).concat(items.slice(1));
 
     var slots = {};
@@ -250,7 +274,6 @@
       cols.forEach(function (c) { bucket[c] = []; });
 
       (d.tables || []).forEach(function (t) {
-        // 小時 key 是當天的絕對小時 0-23，不是 startHour 的位移
         var arr = t[String(h)] || t[h];
         if (!arr || !arr.length) return;
         arr.forEach(function (a) {
@@ -282,6 +305,7 @@
     return {
       name: name,
       deptId: row.dept,
+      brigade: BRIGADE_BY_DEPT[row.dept] || "其他",
       chief: (mg.kind || "") + (mg.name || ""),
       day: row.day || 0,
       night: row.night || 0,
@@ -295,13 +319,14 @@
     };
   }
 
-  function tasksOf(d, name) {
+  function tasksOf(d, name, brigade) {
     return (d.works || []).map(function (w) {
       var t = "";
       if (w.start != null && w.end != null) t = p2(w.start) + "-" + p2(w.end);
       else if (w.start != null) t = p2(w.start);
       return {
         unit: name,
+        brigade: brigade,
         time: t,
         name: w.content || w.raw || "",
         who: (w.users || []).map(function (u) { return u.name || u.no; }).join(","),
@@ -311,12 +336,7 @@
     });
   }
 
-  /* ---------- 單位名稱 ----------
-     list 回傳只有單位 ID，不含名稱。系統回傳的順序不保證與畫面列表
-     順序一致（實測發現過對調），所以不能用「第幾筆對第幾列」這種
-     位置對應。改用「主管」欄位的文字做內容比對：API 回傳的 manager
-     物件（kind+name）與畫面上「主管」那欄顯示的文字是同一份資料，
-     兩邊内容一定一致，用它當 key 就不受順序影響。 */
+  /* ---------- 單位名稱（跟 collector.js 的 nameMap() 同一套邏輯） ---------- */
 
   function nameMap() {
     var m = {};
@@ -340,11 +360,8 @@
     return m;
   }
 
-  // 自動模式一開頁面就會立刻嘗試採集，這時候畫面上的表格可能還在
-  // 渲染中（尤其是自動觸發查詢、不是人手動等頁面穩定後才點）。
-  // 直接讀一次表格常常抓到空表格，導致單位名稱整批退回代碼顯示。
-  // 正解：輪詢等表格內容連續兩次讀到同樣的筆數（判斷已經穩定），
-  // 或等到上限時間，才把目前讀到的結果拿去用。
+  // 全縣有 34 個單位，畫面表格行數比成功大隊那 6 個多很多，穩定
+  // 渲染需要的時間可能更長，一樣用輪詢等內容連續兩次不再變化。
   function waitForNameMap(maxWaitMs) {
     return new Promise(function (resolve) {
       var waited = 0, step = 300, lastCount = -1, stableTicks = 0;
@@ -363,22 +380,15 @@
 
   /* ---------- 主流程 ---------- */
 
-  // 把 shift-status/list 的回應整理成看板要用的「即時出勤」格式。
-  // 只留不在隊、且不是請假的人（請假已經在「今日未到勤」顯示過了，
-  // 這裡只留真的在外出勤/外出的即時狀態）。刻意只挑這幾欄，原始回應
-  // 裡的內部 ID、系統雜項欄位一律不帶出去。
-  // unit 這個名稱是「這個分頁當下算出來的」，可能因為前面提到的各種
-  // 時序問題而不準；額外帶上原始 dept ID，讓伺服器可以用它手上最新、
-  // 最完整的單位對照表重新校正一次，不管是哪個分頁、哪個時間點送來的
-  // 都一樣準——不能只靠「客戶端這次剛好算對」。
-  function buildOutStatus(statusList, deptToName) {
+  function buildOutStatus(statusList, deptToInfo) {
     var out = [];
     (statusList || []).forEach(function (u) {
-      var unitName = deptToName[u.dept] || u.dept;
+      var info = deptToInfo[u.dept] || { name: u.dept, brigade: BRIGADE_BY_DEPT[u.dept] || "其他" };
       (u.outDeptUsers || []).forEach(function (p) {
         if (p.leave === true) return;
         out.push({
-          unit: unitName,
+          unit: info.name,
+          brigade: info.brigade,
           dept: u.dept,
           name: p.name || p.no || "",
           reason: p.recordKind || "",
@@ -390,17 +400,10 @@
     return out;
   }
 
-  // 上一次完整採集算出的「單位 ID → 單位名稱」對照，讓即時出勤的
-  // 快速查詢不用重新查一次勤務表列表就能標出單位名稱。
-  var lastDeptToName = null;
+  // 上一次完整採集算出的「單位 ID → {名稱,大隊}」對照
+  var lastDeptToInfo = null;
 
-  // 交接班是 08:00，不是午夜。ttfd2 一筆「日期：D」的記錄，實際涵蓋
-  // D 08:00 到 D+1 08:00 這整個值班日——表格從 08-09 排到 23-24，
-  // 再接 00-01 到 07-08，這幾格其實是隔天凌晨，只是仍歸在「D」這筆
-  // 記錄底下（已用 ttfd2 原始畫面截圖驗證過）。如果現在時間還沒到
-  // 08:00，代表真正生效的是「昨天」那個值班日（昨天 08:00 開始，
-  // 今天 08:00 才結束），查「今天」的日期會查到還沒開始的下一個值班
-  // 日，看到的「目前時段」內容其實是明天的班表。
+  // 交接班是 08:00，不是午夜，跟 collector.js 的 dutyDayOf() 同一套。
   function dutyDayOf(d) {
     var base = new Date(d);
     if (base.getHours() < 8) base.setDate(base.getDate() - 1);
@@ -408,23 +411,25 @@
   }
 
   function collect(auth, cfg, quiet) {
-    if (!quiet) say("向系統查詢勤務表列表…");
+    if (!quiet) say("向系統查詢全縣勤務表列表…");
 
     var now = new Date();
     var dutyDay = dutyDayOf(now);
     var today = dutyDay.getFullYear() + "-" + p2(dutyDay.getMonth() + 1) + "-" + p2(dutyDay.getDate());
 
+    // 不帶 depts 篩選（送空陣列），系統會回傳這個帳號看得到的全部
+    // 單位——這是用探測書籤實測確認過的行為，不是猜測。
     var body = {
-      depts: DEPTS,
+      depts: [],
       start: dutyDay.toISOString(),
       end: null,
       select: "dept date manager workers day night updatedAt",
       limit: 999
     };
 
-    var deptToName = {};
+    var deptToInfo = {};
 
-    return waitForNameMap(8000).then(function (names) {
+    return waitForNameMap(10000).then(function (names) {
       if (!quiet && !Object.keys(names).length) {
         say("提醒：畫面單位列表尚未載入完成，單位名稱暫時以代碼顯示。", "#F2A93B");
       }
@@ -441,27 +446,27 @@
                   var mg = row.manager || {};
                   var mgrText = (mg.kind || "") + (mg.name || "");
                   var nm = names[mgrText] || ("單位…" + String(row.dept).slice(-6));
-                  deptToName[row.dept] = nm;
+                  var brigade = BRIGADE_BY_DEPT[row.dept] || "其他";
+                  deptToInfo[row.dept] = { name: nm, brigade: brigade };
                   units.push(transform(row, d, nm));
-                  tasks = tasks.concat(tasksOf(d, nm));
-                  if (!quiet) say("  " + nm + "　日 " + row.day + " ／ 夜 " + row.night);
+                  tasks = tasks.concat(tasksOf(d, nm, brigade));
+                  if (!quiet) say("  [" + brigade + "] " + nm + "　日 " + row.day + " ／ 夜 " + row.night);
                 })
                 .catch(function (e) {
                   if (!quiet) say("  取細表失敗：" + e.message, "#F2A93B");
                 });
             });
           }, Promise.resolve()).then(function () {
-            lastDeptToName = deptToName;
-            return { date: today, collectedAt: new Date().toISOString(), units: units, tasks: tasks, outStatus: [] };
+            lastDeptToInfo = deptToInfo;
+            return { date: today, collectedAt: new Date().toISOString(), countyUnits: units, countyTasks: tasks, countyOutStatus: [] };
           });
         })
         .then(function (payload) {
-          // 即時出勤狀態是加分項目，查不到也不該讓整次採集失敗。
-          return api("POST", "/api/v2/shift-status/list", { depts: DEPTS }, auth)
+          return api("POST", "/api/v2/shift-status/list", { depts: [] }, auth)
             .then(function (statusList) {
-              payload.outStatus = buildOutStatus(statusList, deptToName);
-              if (!quiet && payload.outStatus.length) {
-                say("  即時出勤 " + payload.outStatus.length + " 人");
+              payload.countyOutStatus = buildOutStatus(statusList, deptToInfo);
+              if (!quiet && payload.countyOutStatus.length) {
+                say("  即時出勤 " + payload.countyOutStatus.length + " 人");
               }
               return payload;
             })
@@ -471,9 +476,9 @@
             });
         })
         .then(function (payload) {
-          if (!payload.units.length) throw new Error("沒有取得任何單位資料");
+          if (!payload.countyUnits.length) throw new Error("沒有取得任何單位資料");
           if (!quiet) say("送往看板伺服器…");
-          return fetch(cfg.url.replace(/\/$/, "") + "/api/push", {
+          return fetch(cfg.url.replace(/\/$/, "") + "/api/push-county", {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-Push-Token": cfg.tok },
             body: JSON.stringify(payload)
@@ -487,21 +492,18 @@
     });
   }
 
-  // 只查即時出勤狀態、不重查整份勤務表的輕量版本，給 30 分鐘排程用。
-  // 用「快速推送」（body 只有 outStatus）送到伺服器，伺服器那邊會
-  // 合併進現有資料，不會把勤務表洗掉。
   function collectOutStatusOnly(auth, cfg, quiet) {
-    if (!lastDeptToName) {
+    if (!lastDeptToInfo) {
       if (!quiet) say("尚未有完整資料可對照單位名稱，這次即時出勤更新先跳過。", "#F2A93B");
       return Promise.resolve(null);
     }
-    return api("POST", "/api/v2/shift-status/list", { depts: DEPTS }, auth)
+    return api("POST", "/api/v2/shift-status/list", { depts: [] }, auth)
       .then(function (statusList) {
-        var outStatus = buildOutStatus(statusList, lastDeptToName);
-        return fetch(cfg.url.replace(/\/$/, "") + "/api/push", {
+        var outStatus = buildOutStatus(statusList, lastDeptToInfo);
+        return fetch(cfg.url.replace(/\/$/, "") + "/api/push-county", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Push-Token": cfg.tok },
-          body: JSON.stringify({ outStatus: outStatus })
+          body: JSON.stringify({ countyOutStatus: outStatus })
         }).then(function (r) {
           return r.json().then(function (j) {
             if (!r.ok || !j.ok) {
@@ -515,11 +517,7 @@
       });
   }
 
-  /* ---------- 啟動 ----------
-     跟書籤版最大的不同：這裡不能用 prompt() 卡住等輸入——排程執行時
-     沒有人在螢幕前應答。如果 localStorage 裡還沒有存過網址／通行碼
-     （代表這台電腦、這個瀏覽器從來沒有用書籤版跑過一次），就直接
-     顯示錯誤、不啟動，避免卡住一個沒人回應的對話框。 */
+  /* ---------- 啟動 ---------- */
 
   ui();
 
@@ -528,7 +526,7 @@
 
   if (!url || !tok) {
     say("尚未設定看板伺服器網址或通行碼，自動模式無法啟動。", "#E4392B");
-    say("請先用書籤版（collector-bookmarklet.txt）手動執行一次，" +
+    say("請先用書籤版（collector-county-bookmarklet.txt）手動執行一次，" +
         "把設定存進這個瀏覽器後，自動模式才會運作。", "#F2A93B");
     return;
   }
@@ -546,53 +544,41 @@
       .then(function (p) {
         var t = new Date();
         say("完成　" + p2(t.getHours()) + ":" + p2(t.getMinutes()) +
-            "　單位 " + p.units.length + " 個、勤務 " + p.tasks.length + " 項", "#3DBE6B");
+            "　單位 " + p.countyUnits.length + " 個、勤務 " + p.countyTasks.length + " 項", "#3DBE6B");
       })
       .catch(function (e) {
         say("失敗：" + e.message, "#E4392B");
         if (/401|403/.test(e.message)) {
-          // 授權可能過期，清掉快取，下次自動重新攔截
-          window.__collectorAuth = null;
+          window.__countyAuth = null;
           say("授權可能已過期，下次自動更新時會重新取得。", "#F2A93B");
         }
       });
   }
 
-  /* ---------- 排程 ----------
-     不是單純每 4 小時跑一次：如果距離下次固定排程之間會跨過當天的
-     交接班時間（08:00，見上面 dutyDayOf() 的說明），就提前在 08:00
-     那個時間點多跑一次，讓新的值班日一開始就有新鮮資料，而不是要
-     等到 4 小時的排程剛好轉到才更新。
-     這只在「這個分頁從半夜到隔天都沒被關掉」時才有意義——電腦關機、
-     分頁被關掉都會讓這個排程跟著消失，這也是為什麼要搭配 Windows
-     排程器：就算分頁被關掉、電腦重開機，隔天早上也會有新的分頁
-     自動開啟、自動接手。 */
   var DAILY_HOUR = 8;
 
   function msUntilNextRun(now) {
-    var next7 = new Date(now);
-    next7.setHours(DAILY_HOUR, 0, 0, 0);
-    if (next7 <= now) next7.setDate(next7.getDate() + 1);
-    var msTo7 = next7.getTime() - now.getTime();
-    return Math.min(PUSH_INTERVAL_MS, msTo7);
+    var next = new Date(now);
+    next.setHours(DAILY_HOUR, 0, 0, 0);
+    if (next <= now) next.setDate(next.getDate() + 1);
+    var msTo = next.getTime() - now.getTime();
+    return Math.min(PUSH_INTERVAL_MS, msTo);
   }
 
   function scheduleNext() {
     var wait = msUntilNextRun(new Date());
-    window.__collectTimer = setTimeout(function () {
+    window.__countyCollectTimer = setTimeout(function () {
       run(true);
       scheduleNext();
     }, wait);
   }
 
-  // 即時出勤的獨立排程，比完整資料短，只打 shift-status/list 這支。
   function runOutStatus(quiet) {
     getAuth()
       .then(function (auth) {
         return collectOutStatusOnly(auth, cfg, quiet);
       })
       .then(function (outStatus) {
-        // 尚無單位對照，collectOutStatusOnly 已經有訊息了
         if (!outStatus) return;
         var t = new Date();
         say("即時出勤更新　" + p2(t.getHours()) + ":" + p2(t.getMinutes()) +
@@ -600,11 +586,7 @@
       })
       .catch(function (e) {
         say("即時出勤更新失敗：" + e.message, "#F2A93B");
-        if (/401|403/.test(e.message)) window.__collectorAuth = null;
-        // 伺服器回 409＝手上完全沒有完整資料（例如 Render 免費方案
-        // 閒置太久休眠、電腦待機期間沒人連線，醒來後記憶體是空的）。
-        // 乾等下一次 4 小時排程太久，看板會一直卡在沒資料狀態，
-        // 直接立刻補跑一次完整採集，順便自然把即時出勤也一起送出。
+        if (/401|403/.test(e.message)) window.__countyAuth = null;
         if (e.status === 409) {
           say("伺服器沒有完整資料（可能剛重新啟動），改為立即執行一次完整採集…", "#F2A93B");
           run(true);
@@ -612,20 +594,10 @@
       });
   }
 
-  /* ---------- 多分頁協調：新分頁自動讓舊分頁停止 ----------
-     Windows 排程器每天開一個新分頁，如果前一天的分頁忘了關，兩個
-     分頁會同時各自跑自己的排程——不會弄錯資料（伺服器那邊已經會用
-     最新的單位對照表重新校正即時出勤的名稱），但會白白浪費資源，
-     狀態視窗也會被兩邊的紀錄弄得很亂，舊分頁又特別容易在 ttfd2
-     系統改版、登入逾時之類的情況卡住、一直重試失敗，洗一堆沒有用
-     的失敗訊息。
-     做法：每個分頁啟動時把自己的代號寫進 localStorage；同網域的其他
-     分頁會收到 storage 事件，發現代號換人了，代表有更新的分頁已經
-     接手，就自己停止排程。基於瀏覽器安全限制，不是所有分頁都能被
-     腳本強制關閉（只有瀏覽紀錄夠單純的分頁才會成功，例如排程器直接
-     開網址、沒有其他頁面連結過去的分頁通常可以），失敗也沒關係，
-     至少能保證舊分頁不會再浪費資源、繼續洗版。 */
-  var LEADER_KEY = "ttfd_collector_leader_v1";
+  /* ---------- 多分頁協調 ----------
+     用跟成功大隊那支不同的 key，避免互相干擾——這兩支收集的是不同
+     資料、給不同帳號用，不應該讓其中一支關掉另一支。 */
+  var LEADER_KEY = "ttfd_county_collector_leader_v1";
   var myLeaderId = Date.now() + "_" + Math.random().toString(36).slice(2);
 
   function claimLeadership() {
@@ -636,10 +608,10 @@
 
   function retireOldTab() {
     say("偵測到有較新的分頁已接手，本分頁停止自動更新，可以關閉。", "#93A6B6");
-    if (window.__collectTimer) clearTimeout(window.__collectTimer);
-    if (window.__collectOutTimer) clearInterval(window.__collectOutTimer);
-    window.__collectTimer = null;
-    window.__collectOutTimer = null;
+    if (window.__countyCollectTimer) clearTimeout(window.__countyCollectTimer);
+    if (window.__countyCollectOutTimer) clearInterval(window.__countyCollectOutTimer);
+    window.__countyCollectTimer = null;
+    window.__countyCollectOutTimer = null;
     try { window.close(); } catch (e) {}
   }
 
@@ -654,11 +626,11 @@
 
   run(false);
 
-  if (window.__collectTimer) clearTimeout(window.__collectTimer);
+  if (window.__countyCollectTimer) clearTimeout(window.__countyCollectTimer);
   scheduleNext();
 
-  if (window.__collectOutTimer) clearInterval(window.__collectOutTimer);
-  window.__collectOutTimer = setInterval(function () { runOutStatus(true); }, OUT_STATUS_INTERVAL_MS);
+  if (window.__countyCollectOutTimer) clearInterval(window.__countyCollectOutTimer);
+  window.__countyCollectOutTimer = setInterval(function () { runOutStatus(true); }, OUT_STATUS_INTERVAL_MS);
 
   say("已開啟自動更新：完整資料每 4 小時（並在每天 08:00 額外多跑一次），即時出勤每 30 分鐘。關閉本視窗即停止。", "#93A6B6");
   say("提醒：本分頁須保持開啟才會自動更新；系統若因閒置逾時登出，下次更新會自動嘗試重新取得授權。", "#93A6B6");

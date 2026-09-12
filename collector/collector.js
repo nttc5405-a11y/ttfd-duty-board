@@ -645,6 +645,6 @@
   if (window.__collectOutTimer) clearInterval(window.__collectOutTimer);
   window.__collectOutTimer = setInterval(function () { runOutStatus(true); }, OUT_STATUS_INTERVAL_MS);
 
-  say("已開啟自動更新：完整資料每 4 小時（並在每天 07:00 額外多跑一次），即時出勤每 30 分鐘。關閉本視窗即停止。", "#93A6B6");
+  say("已開啟自動更新：完整資料每 4 小時（並在每天 08:00 額外多跑一次），即時出勤每 30 分鐘。關閉本視窗即停止。", "#93A6B6");
   say("提醒：本分頁須保持開啟才會自動更新；系統若因閒置逾時登出，下次更新會自動嘗試重新取得授權。", "#93A6B6");
 })();

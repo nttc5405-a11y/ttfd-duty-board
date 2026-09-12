@@ -584,7 +584,7 @@ try{
 
 <div class="topbar">
   <div class="unit">
-    <span class="unit-name">臺東縣消防局　成功大隊</span>
+    <span class="unit-name" id="unitname">臺東縣消防局　成功大隊</span>
     <span class="unit-sub" id="rocdate">—</span>
   </div>
   <div class="clockwrap">
@@ -763,6 +763,16 @@ try{
   // 空陣列＝橫幅不顯示，等採集器送來真實資料才會出現。
   var OUT_STATUS=[];
 
+  /* ---- 全縣多大隊視角 ----
+     HQ_* 是成功大隊自己的資料（原本的 UNITS/TASKS/OUT_STATUS，改個
+     名字方便區分），COUNTY_* 是局本部帳號採集器送來的全縣資料，
+     兩邊完全獨立、互不覆蓋。UNITS/TASKS/OUT_STATUS 這三個名字繼續
+     給所有既有渲染函式用，代表「目前選到的大隊」那份資料，實際內容
+     由 applyBrigadeScope() 依 brigadeScope 決定要用哪一邊。 */
+  var HQ_UNITS=UNITS, HQ_TASKS=TASKS, HQ_OUT_STATUS=OUT_STATUS;
+  var COUNTY_UNITS=[], COUNTY_TASKS=[], COUNTY_OUT_STATUS=[];
+  var COUNTY_BRIGADES=["台東大隊","關山大隊","大武大隊","局本部"];
+
   // Google 行事曆真實資料（2026-09-04 重新完整查詢 3 個來源日曆取得，
   // 涵蓋至 9/20）。每筆都是真的查到的行程，標題視需要精簡掉內部聯絡人
   // 電話、Email 等資訊，但事件本身不是編的；link 是該筆在 Google
@@ -890,16 +900,40 @@ try{
 
   function slotKey(h){ return p2(h)+"-"+p2(h+1); }
 
-  /* ---- 單位範圍（大隊視角／單一分隊視角） ----
+  /* ---- 單位範圍（大隊視角／單一分隊視角／全縣其他大隊） ----
      選「全部」= 大隊視角，維持現有全部顯示的行為。
      選某個分隊 = 只看該分隊自己的編組卡、當日勤務、未到勤名單，
      語音提醒的勤務項目也只播該分隊的。
+     選單另外分組列出全縣其他大隊（台東／關山／大武／局本部），選了
+     哪個大隊，UNITS/TASKS/OUT_STATUS 這幾個既有渲染函式在用的變數
+     就切換成該大隊的資料——這幾支大隊目前只提供「全部」視角，不像
+     成功大隊那樣能再細看單一分隊，之後真的需要再加。
      大隊總覽帶、Google 行事曆這兩塊不受這個選擇影響——前者是全大隊
      的巨觀資訊，後者的資料來源本來就沒有「屬於哪個分隊」這種對應。
      選擇存在瀏覽器 localStorage，同一台裝置下次開啟還記得。 */
   var UNIT_SCOPE_KEY="board-unit-scope";
   var unitScope="ALL";
   try{ unitScope=localStorage.getItem(UNIT_SCOPE_KEY)||"ALL"; }catch(e){}
+
+  var BRIGADE_SCOPE_KEY="board-brigade-scope";
+  var brigadeScope="成功大隊";
+  try{ brigadeScope=localStorage.getItem(BRIGADE_SCOPE_KEY)||"成功大隊"; }catch(e){}
+
+  // 依 brigadeScope 把 UNITS/TASKS/OUT_STATUS 這三個既有渲染函式在
+  // 用的變數，指到成功大隊自己的資料（HQ_*）或全縣其他大隊的資料
+  // （COUNTY_* 依大隊篩選）。其餘渲染邏輯完全不用改，因為它們本來
+  // 就只認 UNITS/TASKS/OUT_STATUS 這三個名字。
+  function applyBrigadeScope(){
+    if(brigadeScope==="成功大隊"){
+      UNITS=HQ_UNITS; TASKS=HQ_TASKS; OUT_STATUS=HQ_OUT_STATUS;
+    }else{
+      UNITS=COUNTY_UNITS.filter(function(u){ return u.brigade===brigadeScope; });
+      TASKS=COUNTY_TASKS.filter(function(t){ return t.brigade===brigadeScope; });
+      OUT_STATUS=COUNTY_OUT_STATUS.filter(function(o){ return o.brigade===brigadeScope; });
+    }
+    var nameEl=document.getElementById("unitname");
+    if(nameEl) nameEl.textContent="臺東縣消防局　"+brigadeScope;
+  }
 
   function visibleUnits(){
     if(unitScope==="ALL") return UNITS;
@@ -911,24 +945,55 @@ try{
     var sel=document.getElementById("unitScope");
     if(!sel) return;
 
-    var names=UNITS.map(function(u){ return u.name; });
-    if(unitScope!=="ALL"&&names.indexOf(unitScope)<0){
+    // 選到的大隊在全縣資料裡消失了（例如局本部帳號的自動化還沒開始
+    // 送資料），退回成功大隊並記住。
+    if(brigadeScope!=="成功大隊"&&!COUNTY_UNITS.some(function(u){ return u.brigade===brigadeScope; })){
+      brigadeScope="成功大隊"; unitScope="ALL";
+      try{
+        localStorage.setItem(BRIGADE_SCOPE_KEY,brigadeScope);
+        localStorage.setItem(UNIT_SCOPE_KEY,unitScope);
+      }catch(e){}
+    }
+
+    var hqNames=HQ_UNITS.map(function(u){ return u.name; });
+    if(brigadeScope==="成功大隊"&&unitScope!=="ALL"&&hqNames.indexOf(unitScope)<0){
       // 選到的分隊在最新資料裡消失了（例如單位改名），退回全部並記住
       unitScope="ALL";
       try{ localStorage.setItem(UNIT_SCOPE_KEY,unitScope); }catch(e){}
     }
 
-    var html='<option value="ALL"'+(unitScope==="ALL"?" selected":"")+'>全部（大隊視角）</option>';
-    names.forEach(function(n){
-      html+='<option value="'+esc(n)+'"'+(unitScope===n?" selected":"")+'>'+esc(n)+"</option>";
+    applyBrigadeScope();
+
+    var html='<optgroup label="成功大隊">';
+    html+='<option value="成功大隊|ALL"'+((brigadeScope==="成功大隊"&&unitScope==="ALL")?" selected":"")+'>全部（大隊視角）</option>';
+    hqNames.forEach(function(n){
+      html+='<option value="成功大隊|'+esc(n)+'"'+((brigadeScope==="成功大隊"&&unitScope===n)?" selected":"")+'>'+esc(n)+"</option>";
     });
+    html+="</optgroup>";
+
+    COUNTY_BRIGADES.forEach(function(b){
+      if(!COUNTY_UNITS.some(function(u){ return u.brigade===b; })) return;   // 該大隊還沒有資料就先不列出
+      html+='<optgroup label="'+esc(b)+'">';
+      html+='<option value="'+esc(b)+'|ALL"'+(brigadeScope===b?" selected":"")+'>全部（'+esc(b)+'視角）</option>';
+      html+="</optgroup>";
+    });
+
     sel.innerHTML=html;
-    sel.classList.toggle("scoped",unitScope!=="ALL");
+    sel.classList.toggle("scoped",!(brigadeScope==="成功大隊"&&unitScope==="ALL"));
 
     sel.onchange=function(){
-      unitScope=sel.value;
-      try{ localStorage.setItem(UNIT_SCOPE_KEY,unitScope); }catch(e){}
-      sel.classList.toggle("scoped",unitScope!=="ALL");
+      var parts=sel.value.split("|");
+      brigadeScope=parts[0]; unitScope=parts[1]||"ALL";
+      try{
+        localStorage.setItem(BRIGADE_SCOPE_KEY,brigadeScope);
+        localStorage.setItem(UNIT_SCOPE_KEY,unitScope);
+      }catch(e){}
+      applyBrigadeScope();
+      sel.classList.toggle("scoped",!(brigadeScope==="成功大隊"&&unitScope==="ALL"));
+      // 切換分隊不影響總覽帶（本來就是同一個大隊）；但切換大隊會整個
+      // 換掉 UNITS，總覽帶（大隊人力總覽）也要跟著重繪，不然會停在
+      // 上一個大隊的數字。
+      renderStrip();
       renderSquads(lastKey||slotKey(new Date().getHours()));
       renderLeave();
       renderTasks(new Date());
@@ -1401,23 +1466,29 @@ try{
         if(!j||!j.ok||!j.data) return;
         var d=j.data;
 
-        if(Array.isArray(d.units)&&d.units.length){
-          UNITS=d.units.map(function(u){
-            var o={
-              name:u.name,chief:u.chief,
-              day:+u.day||0,night:+u.night||0,
-              ids:u.ids||"",roster:u.roster||"",note:u.note||"",
-              byId:!!u.byId,cars:u.cars||[],
-              leave:u.leave||null
-            };
-            // slots 可為 {"08-09":{duty,cars,standby,rest}} 或列陣列
-            if(u.slots&&!Array.isArray(u.slots)) o.slots=u.slots;
-            else if(Array.isArray(u.slots)&&u.slots.length) o.slots=toMap(u.slots);
-            return o;
-          });
+        function mapUnit(u){
+          var o={
+            name:u.name,chief:u.chief,
+            day:+u.day||0,night:+u.night||0,
+            ids:u.ids||"",roster:u.roster||"",note:u.note||"",
+            byId:!!u.byId,cars:u.cars||[],
+            leave:u.leave||null,brigade:u.brigade||null
+          };
+          // slots 可為 {"08-09":{duty,cars,standby,rest}} 或列陣列
+          if(u.slots&&!Array.isArray(u.slots)) o.slots=u.slots;
+          else if(Array.isArray(u.slots)&&u.slots.length) o.slots=toMap(u.slots);
+          return o;
         }
-        if(Array.isArray(d.tasks)) TASKS=d.tasks;
-        if(Array.isArray(d.outStatus)) OUT_STATUS=d.outStatus;
+
+        if(Array.isArray(d.units)&&d.units.length) HQ_UNITS=d.units.map(mapUnit);
+        if(Array.isArray(d.tasks)) HQ_TASKS=d.tasks;
+        if(Array.isArray(d.outStatus)) HQ_OUT_STATUS=d.outStatus;
+
+        // 全縣多大隊資料（局本部帳號的採集器），跟成功大隊自己的資料
+        // 完全分開存放，只有選到其他大隊時才會用到。
+        if(Array.isArray(d.countyUnits)&&d.countyUnits.length) COUNTY_UNITS=d.countyUnits.map(mapUnit);
+        if(Array.isArray(d.countyTasks)) COUNTY_TASKS=d.countyTasks;
+        if(Array.isArray(d.countyOutStatus)) COUNTY_OUT_STATUS=d.countyOutStatus;
 
         // 伺服器排程抓到的即時行事曆，整批換掉內建的靜態快照；
         // 來源篩選鈕（大隊／局本部／義消）要跟著重新計算一次。
@@ -1431,6 +1502,7 @@ try{
         remoteDutyDate=d.date;
         checkFreshness();
 
+        applyBrigadeScope();   // 先把 UNITS/TASKS/OUT_STATUS 指到目前選的大隊，渲染才會對
         renderStrip();
         renderLeave();
         renderUnitSelector();
@@ -1555,6 +1627,7 @@ try{
     };
   })();
 
+  applyBrigadeScope();
   renderStrip();
   renderLeave();
   renderCalFilterChips();
