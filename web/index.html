@@ -920,13 +920,29 @@ try{
   var brigadeScope="成功大隊";
   try{ brigadeScope=localStorage.getItem(BRIGADE_SCOPE_KEY)||"成功大隊"; }catch(e){}
 
+  // 成功大隊自己的專屬採集器（/api/push）如果還沒送過資料
+  // （remoteReceivedAt 沒值），但全縣採集器（局本部帳號）已經有
+  // 資料——全縣資料本來就含成功大隊自己那 6 個單位——就借用全縣
+  // 資料顯示，不用逼使用者兩邊採集器都要跑。成功大隊自己的採集器
+  // 一旦真的送過資料，就改用它（比較即時、也是原本設計的主要
+  // 來源），兩邊誰先到都能撐起「成功大隊」這個視角。
+  function hqFromCounty(){
+    return COUNTY_UNITS.filter(function(u){ return u.brigade==="成功大隊"; });
+  }
+
   // 依 brigadeScope 把 UNITS/TASKS/OUT_STATUS 這三個既有渲染函式在
-  // 用的變數，指到成功大隊自己的資料（HQ_*）或全縣其他大隊的資料
-  // （COUNTY_* 依大隊篩選）。其餘渲染邏輯完全不用改，因為它們本來
-  // 就只認 UNITS/TASKS/OUT_STATUS 這三個名字。
+  // 用的變數，指到成功大隊自己的資料（HQ_* 或全縣資料裡借來的）或
+  // 其他大隊的資料（COUNTY_* 依大隊篩選）。其餘渲染邏輯完全不用改，
+  // 因為它們本來就只認 UNITS/TASKS/OUT_STATUS 這三個名字。
   function applyBrigadeScope(){
     if(brigadeScope==="成功大隊"){
-      UNITS=HQ_UNITS; TASKS=HQ_TASKS; OUT_STATUS=HQ_OUT_STATUS;
+      if(!hqReceivedAt&&hqFromCounty().length){
+        UNITS=hqFromCounty();
+        TASKS=COUNTY_TASKS.filter(function(t){ return t.brigade==="成功大隊"; });
+        OUT_STATUS=COUNTY_OUT_STATUS.filter(function(o){ return o.brigade==="成功大隊"; });
+      }else{
+        UNITS=HQ_UNITS; TASKS=HQ_TASKS; OUT_STATUS=HQ_OUT_STATUS;
+      }
     }else{
       UNITS=COUNTY_UNITS.filter(function(u){ return u.brigade===brigadeScope; });
       TASKS=COUNTY_TASKS.filter(function(t){ return t.brigade===brigadeScope; });
@@ -956,7 +972,7 @@ try{
       }catch(e){}
     }
 
-    var hqNames=HQ_UNITS.map(function(u){ return u.name; });
+    var hqNames=(!hqReceivedAt&&hqFromCounty().length?hqFromCounty():HQ_UNITS).map(function(u){ return u.name; });
     var brigadeNames=(brigadeScope==="成功大隊")?hqNames:
       COUNTY_UNITS.filter(function(u){ return u.brigade===brigadeScope; }).map(function(u){ return u.name; });
     if(unitScope!=="ALL"&&brigadeNames.indexOf(unitScope)<0){
@@ -1490,6 +1506,13 @@ try{
      收到資料超過門檻，就把告示條轉成警示色，提醒去隊部電腦重新
      執行一次採集器。門檻抓「採集週期 + 1 小時緩衝」。 */
   var remoteReceivedAt=null, remoteDutyDate=null;
+  // remoteReceivedAt 是「畫面上要顯示的新鮮度時間戳」，可能來自成功
+  // 大隊自己的資料或借來的全縣資料；hqReceivedAt 則專門標記「成功
+  // 大隊自己的專屬採集器（/api/push）是否真的送過資料」，只有這個
+  // 才能拿來判斷 applyBrigadeScope() 該不該借用全縣資料——兩者意義
+  // 不同，不能共用同一個變數，否則借用全縣資料時間戳後，會誤判成
+  // 「成功大隊自己已經有資料」而不再借用，畫面反而變回舊的內建範例。
+  var hqReceivedAt=null;
   var STALE_MS=5*60*60*1000;
 
   function checkFreshness(){
@@ -1545,14 +1568,24 @@ try{
           renderCalFilterChips();
         }
 
-        // j.receivedAt 只有成功大隊自己的資料（latest）存在時才有值；
-        // 如果目前只有全縣資料先到（latest 還沒補回來，例如伺服器
-        // 剛重啟），不能把 null 硬塞給 new Date()（會變成 1970 年，
-        // 讓新鮮度判斷誤判成「資料已經幾萬小時沒更新」）。這種情況
-        // 保持原本「尚未收到即時資料」的預設告示就好。
+        // j.receivedAt 只有成功大隊自己的專屬採集器送過資料（latest）
+        // 才有值。如果使用者乾脆只跑全縣採集器（局本部帳號，本來就
+        // 含成功大隊自己那 6 個單位），不強迫兩邊都要跑——這時候
+        // 畫面實際上是用 countyReceivedAt 那份資料撐起來的
+        // （applyBrigadeScope() 的借用邏輯），新鮮度告示也要跟著看
+        // 那個時間，不然會一直卡在「尚未收到即時資料」的預設文字，
+        // 即使畫面其實已經是全縣採集器送來的真實資料。
+        // 兩邊都沒有資料時，不能把 null 硬塞給 new Date()（會變成
+        // 1970 年，讓新鮮度判斷誤判成「資料已經幾萬小時沒更新」），
+        // 這種情況才保持原本「尚未收到即時資料」的預設告示。
         if(j.receivedAt){
-          remoteReceivedAt=new Date(j.receivedAt);
+          hqReceivedAt=new Date(j.receivedAt);
+          remoteReceivedAt=hqReceivedAt;
           remoteDutyDate=d.date;
+          checkFreshness();
+        }else if(d.countyReceivedAt){
+          remoteReceivedAt=new Date(d.countyReceivedAt);
+          remoteDutyDate=d.countyDate;
           checkFreshness();
         }
 

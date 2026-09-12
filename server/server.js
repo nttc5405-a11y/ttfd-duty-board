@@ -291,6 +291,7 @@ app.get("/api/duty", (req, res) => {
     data.countyTasks = latestCounty.data.countyTasks;
     data.countyOutStatus = resolveOutStatusNames(latestCounty.data.countyUnits, latestCounty.data.countyOutStatus);
     data.countyReceivedAt = latestCounty.receivedAt;
+    data.countyDate = latestCounty.data.date;
   }
   res.json({ ok: true, receivedAt: latest ? latest.receivedAt : null, data: data });
 });
