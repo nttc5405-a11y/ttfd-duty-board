@@ -982,6 +982,35 @@ try{
   var brigadeScope="成功大隊";
   try{ brigadeScope=localStorage.getItem(BRIGADE_SCOPE_KEY)||"成功大隊"; }catch(e){}
 
+  /* ---- 網址參數：讓每個單位可以直接開自己專屬的連結 ----
+     例如 ?brigade=台東大隊 或 ?brigade=台東大隊&unit=台東分隊，
+     一開頁面就直接鎖定顯示那個視角，不用先進來再手動切換。這個
+     連結可以貼給各單位自己收藏當書籤——**而且每次開啟這個網址都會
+     強制套用**（不是只有第一次），等於幫這台裝置設了一個「回不去
+     的預設值」：就算有人不小心手滑切到別的大隊，只要重開這個連結
+     就會自動跳回來，不用再手動改回去。
+     只給 unit、沒給 brigade 時（例如 ?unit=台東分隊），因為單位
+     名稱在全縣 34 個裡面互不重複，會在資料載入後自動查出它屬於
+     哪個大隊——但這種情況要等資料從伺服器回來才能生效，不像有給
+     brigade 時能一開頁面就套用，所以能明確指定 brigade 還是建議
+     明確指定。
+     選到的大隊或分隊如果根本不存在（打錯字、資料還沒有），既有的
+     renderUnitSelector() 安全機制會自動退回成功大隊，不會整個壞掉。 */
+  function urlParam(name){
+    try{ return new URLSearchParams(location.search).get(name); }catch(e){ return null; }
+  }
+  var URL_BRIGADE=urlParam("brigade");
+  var URL_UNIT=urlParam("unit");
+  var urlUnitResolved=false;
+  if(URL_BRIGADE){
+    brigadeScope=URL_BRIGADE;
+    unitScope=URL_UNIT||"ALL";
+    try{
+      localStorage.setItem(BRIGADE_SCOPE_KEY,brigadeScope);
+      localStorage.setItem(UNIT_SCOPE_KEY,unitScope);
+    }catch(e){}
+  }
+
   /* ---- 切換大隊／分隊的密碼保護（試算表管理，見 sheetConfig.js） ----
      這只是「防手滑切錯單位」的軟性提醒，不是真的資料隔離——伺服器
      本來就把全縣資料一起回傳，這裡只是不讓畫面渲染出來。「密碼」
@@ -1166,7 +1195,17 @@ try{
 
     // 選到的大隊在全縣資料裡消失了（例如局本部帳號的自動化還沒開始
     // 送資料），退回成功大隊並記住。
-    if(brigadeScope!=="成功大隊"&&!COUNTY_UNITS.some(function(u){ return u.brigade===brigadeScope; })){
+    // 加上 COUNTY_UNITS.length 這個條件是必要的：這個函式一開頁面
+    // 就會先被呼叫一次（這時候 COUNTY_UNITS 根本還沒從伺服器抓回來，
+    // 一定是空陣列），如果沒有這個條件，任何非成功大隊的選擇（不管
+    // 是網址參數還是上次記住的選擇）都會被這裡誤判成「這個大隊不
+    // 存在」，在真正資料回來之前就被退回成功大隊、還會把這個錯誤
+    // 的退回結果寫回 localStorage 永久記住，導致該裝置往後每次
+    // 開啟都卡在成功大隊，「裝置記住上次選擇」的功能形同失效
+    // （實測發現這個問題：加入網址參數功能時才踩到，但這個坑其實
+    // 從一開始就存在）。要等真的收到全縣資料、卻還是找不到這個
+    // 大隊，才代表它真的不存在，這時候退回成功大隊才合理。
+    if(brigadeScope!=="成功大隊"&&COUNTY_UNITS.length&&!COUNTY_UNITS.some(function(u){ return u.brigade===brigadeScope; })){
       brigadeScope="成功大隊"; unitScope="ALL";
       try{
         localStorage.setItem(BRIGADE_SCOPE_KEY,brigadeScope);
@@ -1177,7 +1216,10 @@ try{
     var hqNames=(!hqIsFresher()&&hqFromCounty().length?hqFromCounty():HQ_UNITS).map(function(u){ return u.name; });
     var brigadeNames=(brigadeScope==="成功大隊")?hqNames:
       COUNTY_UNITS.filter(function(u){ return u.brigade===brigadeScope; }).map(function(u){ return u.name; });
-    if(unitScope!=="ALL"&&brigadeNames.indexOf(unitScope)<0){
+    // 同樣道理：brigadeNames.length 這個條件避免在該大隊的資料還沒
+    // 從伺服器回來前（brigadeNames 暫時是空陣列）就誤判「這個分隊
+    // 不存在」而提早退回全部、還永久寫回 localStorage。
+    if(unitScope!=="ALL"&&brigadeNames.length&&brigadeNames.indexOf(unitScope)<0){
       // 選到的分隊在最新資料裡消失了（例如單位改名），退回全部並記住
       unitScope="ALL";
       try{ localStorage.setItem(UNIT_SCOPE_KEY,unitScope); }catch(e){}
@@ -1847,6 +1889,23 @@ try{
         // 這兩個功能時欄位就是空陣列，跟現有其他選填功能一致。
         if(Array.isArray(d.gatedNames)) GATED_NAMES=d.gatedNames;
         if(Array.isArray(d.notices)) BOARD_NOTICES=d.notices;
+
+        // 網址參數只給 ?unit=，沒給 ?brigade= 時，一開頁面還不知道
+        // 這個分隊屬於哪個大隊，要等這裡資料回來才能查——只查一次
+        // （urlUnitResolved 擋掉之後每 5 分鐘的重新整理），避免每次
+        // 排程重新抓資料都把使用者後來手動切換的選擇蓋回去。
+        if(URL_UNIT&&!URL_BRIGADE&&!urlUnitResolved){
+          urlUnitResolved=true;
+          var urlMatch=HQ_UNITS.concat(COUNTY_UNITS).filter(function(u){ return u.name===URL_UNIT; })[0];
+          if(urlMatch){
+            brigadeScope=urlMatch.brigade||"成功大隊";
+            unitScope=URL_UNIT;
+            try{
+              localStorage.setItem(BRIGADE_SCOPE_KEY,brigadeScope);
+              localStorage.setItem(UNIT_SCOPE_KEY,unitScope);
+            }catch(e){}
+          }
+        }
 
         applyBrigadeScope();   // 先把 UNITS/TASKS/OUT_STATUS 指到目前選的大隊，渲染才會對
         renderStrip();
