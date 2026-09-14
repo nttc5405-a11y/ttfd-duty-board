@@ -1138,7 +1138,7 @@ try{
   // 因為它們本來就只認 UNITS/TASKS/OUT_STATUS 這三個名字。
   function applyBrigadeScope(){
     if(brigadeScope==="成功大隊"){
-      if(!hqReceivedAt&&hqFromCounty().length){
+      if(!hqIsFresher()&&hqFromCounty().length){
         UNITS=hqFromCounty();
         TASKS=COUNTY_TASKS.filter(function(t){ return t.brigade==="成功大隊"; });
         OUT_STATUS=COUNTY_OUT_STATUS.filter(function(o){ return o.brigade==="成功大隊"; });
@@ -1174,7 +1174,7 @@ try{
       }catch(e){}
     }
 
-    var hqNames=(!hqReceivedAt&&hqFromCounty().length?hqFromCounty():HQ_UNITS).map(function(u){ return u.name; });
+    var hqNames=(!hqIsFresher()&&hqFromCounty().length?hqFromCounty():HQ_UNITS).map(function(u){ return u.name; });
     var brigadeNames=(brigadeScope==="成功大隊")?hqNames:
       COUNTY_UNITS.filter(function(u){ return u.brigade===brigadeScope; }).map(function(u){ return u.name; });
     if(unitScope!=="ALL"&&brigadeNames.indexOf(unitScope)<0){
@@ -1744,12 +1744,27 @@ try{
      執行一次採集器。門檻抓「採集週期 + 1 小時緩衝」。 */
   var remoteReceivedAt=null, remoteDutyDate=null;
   // remoteReceivedAt 是「畫面上要顯示的新鮮度時間戳」，可能來自成功
-  // 大隊自己的資料或借來的全縣資料；hqReceivedAt 則專門標記「成功
-  // 大隊自己的專屬採集器（/api/push）是否真的送過資料」，只有這個
-  // 才能拿來判斷 applyBrigadeScope() 該不該借用全縣資料——兩者意義
-  // 不同，不能共用同一個變數，否則借用全縣資料時間戳後，會誤判成
-  // 「成功大隊自己已經有資料」而不再借用，畫面反而變回舊的內建範例。
-  var hqReceivedAt=null;
+  // 大隊自己的資料或借來的全縣資料；hqReceivedAt／countyReceivedAt
+  // 則分別標記「成功大隊專屬採集器」「全縣採集器」各自最後一次真的
+  // 送達資料的時間，只有這兩個才能拿來判斷 applyBrigadeScope() 該用
+  // 哪一份——不能共用 remoteReceivedAt，否則借用全縣時間戳後會誤判
+  // 成「成功大隊自己已經有資料」而不再借用。
+  var hqReceivedAt=null, countyReceivedAt=null;
+
+  // 判斷成功大隊視角該用「自己專屬的」還是「借全縣的」，比的是
+  // 兩邊誰比較新，不是看專屬那份「存不存在」。原本只看存不存在，
+  // 會踩到一個真實發生過的坑：成功大隊專屬採集器只要曾經成功送過
+  // 一次資料，伺服器的 latest 就會永遠留著（連 Render 重開機都靠
+  // /tmp 快取檔存活），就算後來使用者改成只跑全縣採集器、專屬那支
+  // 再也沒執行過，hqReceivedAt 依然「存在」（只是是很舊的時間），
+  // 畫面因此會卡死顯示那份早就過時的舊資料，即使全縣採集器其實
+  // 每次都有正常送新資料——新鮮度告示的「最後採集」時間也會卡住
+  // 不動，看起來像「送了但沒更新」。改成比較新舊之後，只要全縣的
+  // 比較新（或專屬那份根本沒有），就一定會用全縣資料。
+  function hqIsFresher(){
+    return !!hqReceivedAt && (!countyReceivedAt || hqReceivedAt>=countyReceivedAt);
+  }
+
   var STALE_MS=5*60*60*1000;
 
   function checkFreshness(){
@@ -1805,24 +1820,26 @@ try{
           renderCalFilterChips();
         }
 
-        // j.receivedAt 只有成功大隊自己的專屬採集器送過資料（latest）
-        // 才有值。如果使用者乾脆只跑全縣採集器（局本部帳號，本來就
-        // 含成功大隊自己那 6 個單位），不強迫兩邊都要跑——這時候
-        // 畫面實際上是用 countyReceivedAt 那份資料撐起來的
-        // （applyBrigadeScope() 的借用邏輯），新鮮度告示也要跟著看
-        // 那個時間，不然會一直卡在「尚未收到即時資料」的預設文字，
-        // 即使畫面其實已經是全縣採集器送來的真實資料。
+        // j.receivedAt 是成功大隊專屬採集器（/api/push）最後一次送達
+        // 的時間，d.countyReceivedAt 是全縣採集器最後一次送達的時間，
+        // 兩者完全獨立紀錄。新鮮度告示（以及 applyBrigadeScope() 該
+        // 借用哪一份）一律看「哪一個比較新」，不是看「哪一個存在」——
+        // 專屬採集器只要曾經送過一次資料，j.receivedAt 就會永遠有值
+        // （伺服器的 latest 不會自動過期或清空），如果只看存不存在，
+        // 使用者改成只跑全縣採集器後，畫面會卡死顯示專屬那份早就
+        // 過時的舊資料、新鮮度時間也不會再往前走，即使全縣採集器
+        // 其實一直在正常送新資料（見 hqIsFresher() 的說明）。
         // 兩邊都沒有資料時，不能把 null 硬塞給 new Date()（會變成
         // 1970 年，讓新鮮度判斷誤判成「資料已經幾萬小時沒更新」），
         // 這種情況才保持原本「尚未收到即時資料」的預設告示。
-        if(j.receivedAt){
-          hqReceivedAt=new Date(j.receivedAt);
-          remoteReceivedAt=hqReceivedAt;
-          remoteDutyDate=d.date;
-          checkFreshness();
-        }else if(d.countyReceivedAt){
-          remoteReceivedAt=new Date(d.countyReceivedAt);
-          remoteDutyDate=d.countyDate;
+        if(j.receivedAt) hqReceivedAt=new Date(j.receivedAt);
+        if(d.countyReceivedAt) countyReceivedAt=new Date(d.countyReceivedAt);
+        if(hqReceivedAt||countyReceivedAt){
+          if(hqIsFresher()){
+            remoteReceivedAt=hqReceivedAt; remoteDutyDate=d.date;
+          }else{
+            remoteReceivedAt=countyReceivedAt; remoteDutyDate=d.countyDate;
+          }
           checkFreshness();
         }
 

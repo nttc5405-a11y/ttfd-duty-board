@@ -121,6 +121,12 @@ function currentCalSources() {
 
 const CAL_POLL_MS = 12 * 60 * 60 * 1000; // 12 小時
 let calCache = null; // { days, fetchedAt }
+// 個別行事曆來源抓取失敗（例如網址格式不對、不是真的 iCal 連結）不會
+// 讓整個排程掛掉（見 fetchAllCalendars 的 Promise.allSettled），但
+// 原本這個錯誤只寫進伺服器自己的 console.log，你在 Render 後台以外
+// 完全看不到。存成這個變數、透過 /api/cal-refresh 與 /api/health
+// 回應出去，才能在瀏覽器就直接看到「哪個來源、為什麼失敗」。
+let calLastErrors = [];
 
 function refreshCalendar() {
   var sources = currentCalSources();
@@ -128,11 +134,13 @@ function refreshCalendar() {
   return fetchAllCalendars(sources)
     .then((result) => {
       calCache = { days: result.days, fetchedAt: result.fetchedAt };
+      calLastErrors = result.errors;
       var msg = "[cal] 已更新，共 " + result.days.length + " 天有行程";
       if (result.errors.length) msg += "；部分來源失敗：" + result.errors.join("；");
       console.log(msg);
     })
     .catch((e) => {
+      calLastErrors = [e.message];
       console.log("[cal] 更新失敗，保留舊資料（若有）：" + e.message);
     });
 }
@@ -428,7 +436,8 @@ app.get("/api/cal-refresh", (req, res) => {
       res.json({
         ok: true,
         calFetchedAt: calCache ? calCache.fetchedAt : null,
-        calDays: calCache ? calCache.days.length : 0
+        calDays: calCache ? calCache.days.length : 0,
+        errors: calLastErrors
       });
     })
     .catch((e) => {
@@ -449,6 +458,7 @@ app.get("/api/health", (req, res) => {
     calSources: currentCalSources().map((s) => s.name + "（" + s.brigade + "）"),
     calFetchedAt: calCache ? calCache.fetchedAt : null,
     calDays: calCache ? calCache.days.length : 0,
+    calErrors: calLastErrors,
     config: sheetConfig ? sheetConfig.status() : null
   });
 });

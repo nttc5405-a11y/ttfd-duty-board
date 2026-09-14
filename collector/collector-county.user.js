@@ -105,7 +105,7 @@
     head.style.cssText =
       "display:flex;align-items:center;gap:8px;padding:9px 12px;background:#1b2530;" +
       "border-bottom:1px solid #3a4a5a;font-weight:700";
-    head.appendChild(document.createTextNode("全縣勤務看板採集器（自動模式 v1）"));
+    head.appendChild(document.createTextNode("全縣勤務看板採集器（自動模式 v2）"));
 
     var stop = document.createElement("button");
     stop.textContent = "停止並關閉";
@@ -360,20 +360,69 @@
     return m;
   }
 
-  // 全縣有 34 個單位，畫面表格行數比成功大隊那 6 個多很多，穩定
-  // 渲染需要的時間可能更長，一樣用輪詢等內容連續兩次不再變化。
+  // 全縣有 34 個單位，畫面表格是可以獨立捲動的區塊，一次只會渲染
+  // 看得到的那幾列——實測發現排程觸發時，畫面一開始只有約 13～14
+  // 列在 DOM 裡，其餘 20 列要捲動才會出現，光是輪詢等內容不再變化
+  // 只能等到「目前這批」穩定，不會讓其餘列自己長出來，導致沒捲到
+  // 的單位主管文字對不到、退回顯示單位代碼（實測發生過：34 個單位
+  // 只有 14 個抓到正確名稱）。正解：找到表格的捲動容器，主動一段
+  // 一段往下捲，每捲一段就讀一次目前看得到的內容並累加進同一份
+  // 對照表，直到捲到底或連續幾次捲不動為止，最後把捲動位置還原、
+  // 不留痕跡；找不到可捲動容器（單位少、一次就顯示完）時，退回
+  // 原本「輪詢等內容穩定」的做法。
+  function findScrollParent(el) {
+    var node = el ? el.parentElement : null;
+    while (node && node !== document.body && node !== document.documentElement) {
+      var cs = window.getComputedStyle(node);
+      if (/(auto|scroll)/.test(cs.overflowY) && node.scrollHeight > node.clientHeight + 4) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+    return null;
+  }
+
   function waitForNameMap(maxWaitMs) {
     return new Promise(function (resolve) {
-      var waited = 0, step = 300, lastCount = -1, stableTicks = 0;
-      (function poll() {
-        var m = nameMap();
-        var count = Object.keys(m).length;
+      var acc = {};
+      function merge(m) {
+        for (var k in m) { if (m.hasOwnProperty(k)) acc[k] = m[k]; }
+      }
+
+      var tb = document.querySelector("table");
+      var scroller = tb ? findScrollParent(tb) : null;
+      var startedAt = Date.now();
+      var originalScrollTop = scroller ? scroller.scrollTop : null;
+      var lastCount = -1, stableTicks = 0;
+
+      function finish() {
+        if (scroller && originalScrollTop != null) scroller.scrollTop = originalScrollTop;
+        resolve(acc);
+      }
+
+      // 「收集完成」的判斷同時看兩件事：(1) 內容數量連續幾次讀到都
+      // 一樣（代表不是還在陸續長出來）、(2) 沒有捲動容器、或已經捲到
+      // 底（代表沒有更多列可以捲出來看）。兩者都成立才真的結束，
+      // 只成立其中一個都繼續等——避免「表格還沒捲到底就因為內容暫時
+      // 沒變化被誤判成穩定」，也避免「已經捲到底但這批內容其實還在
+      // 陸續載入就提早結束」。
+      (function step() {
+        merge(nameMap());
+        var count = Object.keys(acc).length;
         if (count > 0 && count === lastCount) stableTicks++;
         else stableTicks = 0;
         lastCount = count;
-        waited += step;
-        if ((count > 0 && stableTicks >= 2) || waited >= maxWaitMs) resolve(m);
-        else setTimeout(poll, step);
+
+        if (Date.now() - startedAt >= maxWaitMs) { finish(); return; }
+
+        var atBottom = !scroller || (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4);
+
+        if (stableTicks >= 3 && atBottom) { finish(); return; }
+
+        if (scroller && !atBottom) {
+          scroller.scrollTop = scroller.scrollTop + Math.max(120, scroller.clientHeight * 0.7);
+        }
+        setTimeout(step, 300);
       })();
     });
   }
@@ -429,7 +478,7 @@
 
     var deptToInfo = {};
 
-    return waitForNameMap(10000).then(function (names) {
+    return waitForNameMap(15000).then(function (names) {
       if (!quiet && !Object.keys(names).length) {
         say("提醒：畫面單位列表尚未載入完成，單位名稱暫時以代碼顯示。", "#F2A93B");
       }
