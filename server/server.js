@@ -335,6 +335,15 @@ app.get("/api/duty", (req, res) => {
   // 看板端只要讀一個地方就好。
   var data = latest ? Object.assign({}, latest.data) : {};
   if (latest) {
+    // 單位名稱一律用單位代碼查（見 sheetConfig.js 的 fixNames），不信任採集器
+    // 靠畫面表格比對出來的名稱——那個做法在畫面日期跟查詢值班日對不上
+    // （例如 08:00 交接班前）時會退回顯示代碼。
+    if (sheetConfig && Array.isArray(data.units)) {
+      var fixedHq = sheetConfig.fixNames(data.units, data.tasks, data.outStatus);
+      data.units = fixedHq.units;
+      data.tasks = fixedHq.tasks;
+      data.outStatus = fixedHq.outStatus;
+    }
     data.outStatus = resolveOutStatusNames(data.units, data.outStatus);
   }
   if (calCache) {
@@ -344,7 +353,14 @@ app.get("/api/duty", (req, res) => {
   if (latestCounty) {
     var countyUnits = latestCounty.data.countyUnits;
     var countyTasks = latestCounty.data.countyTasks || [];
-    var countyOutStatus = resolveOutStatusNames(countyUnits, latestCounty.data.countyOutStatus);
+    var countyOutStatus = latestCounty.data.countyOutStatus;
+    if (sheetConfig) {
+      var fixedCounty = sheetConfig.fixNames(countyUnits, countyTasks, countyOutStatus);
+      countyUnits = fixedCounty.units;
+      countyTasks = fixedCounty.tasks;
+      countyOutStatus = fixedCounty.outStatus;
+    }
+    countyOutStatus = resolveOutStatusNames(countyUnits, countyOutStatus);
 
     // 單位代碼→大隊對照表若有試算表資料就覆蓋採集器當初算的結果，
     // 這樣單位改編、新增分隊只要改試算表就好，不用重新部署採集器。

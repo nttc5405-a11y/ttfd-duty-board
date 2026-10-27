@@ -52,7 +52,51 @@ const CAL_TAGS = ["t1", "t2", "t3"];   // 前端只定義了三種顏色的篩�
 let passwordsCache = {};      // { 大隊名或分隊名: 密碼 }，含 "管理員" 這個特殊 key
 let deptByIdCache = {};       // { 單位代碼: 所屬大隊 }
 let deptByNameCache = {};     // { 單位名稱: 所屬大隊 }
+let deptNameByIdCache = {};   // { 單位代碼: 單位名稱 }（試算表讀來的，蓋過下面的內建預設）
 let noticesCache = [];        // [{ text, targets:[大隊...] 或 ["ALL"] }]
+
+// 內建的單位代碼→名稱預設表（來源 docs/API筆記.md 第九節，2026-09-12 用局本部帳號
+// 實測確認的 34 個單位）。單位名稱以前靠採集器讀「畫面表格的主管欄」比對才換得出來，
+// 畫面日期跟查詢的值班日對不上（例如 08:00 交接班前）或表格還沒渲染完整時就會
+// 退回顯示代碼；改成伺服器直接用代碼查名稱，完全不依賴畫面。試算表「單位代碼」
+// 分頁有填的名稱優先於這份預設，所以新增／改名單位只要改試算表；試算表沒設定
+// 或暫時抓不到時，這份預設也足夠撐住現有 34 個單位。
+const DEFAULT_DEPT_NAMES = {
+  "593eccb1fff0d617e493b68c": "救災救護指揮中心",
+  "593f851fa326a612c81cfcb3": "安檢分隊",
+  "696808ca4e790948451ed8eb": "科技救災分隊",
+  "593f82a5a326a612c81cfc99": "台東大隊",
+  "593f82d7a326a612c81cfc9a": "台東分隊",
+  "696807ff4e790948451ed895": "台東救護分隊",
+  "593f8303a326a612c81cfc9c": "特搜分隊",
+  "633bbc5e50266a462b420906": "大豐分隊",
+  "593f82e9a326a612c81cfc9b": "知本分隊",
+  "593f8593a326a612c81cfcb8": "卑南分隊",
+  "593f8453a326a612c81cfca8": "南王分隊",
+  "5a5dd762ff615e83c6001f66": "豐田分隊",
+  "696808634e790948451ed8bf": "搜救犬分隊",
+  "593f8465a326a612c81cfca9": "綠島分隊",
+  "593f8580a326a612c81cfcb7": "蘭嶼分隊",
+  "593f835aa326a612c81cfc9e": "關山大隊",
+  "593f8381a326a612c81cfca0": "關山分隊",
+  "593f839ca326a612c81cfca1": "鹿野分隊",
+  "593f83b0a326a612c81cfca2": "池上分隊",
+  "593f8478a326a612c81cfcaa": "延平分隊",
+  "593f85d0a326a612c81cfcbb": "海端分隊",
+  "593f85e7a326a612c81cfcbc": "利稻分隊",
+  "593f836aa326a612c81cfc9f": "大武大隊",
+  "593f8443a326a612c81cfca7": "太麻里分隊",
+  "593f853fa326a612c81cfcb4": "金峰分隊",
+  "593f855ca326a612c81cfcb5": "大溪分隊",
+  "593f8431a326a612c81cfca6": "大武分隊",
+  "5d8b35b1effb7b7968d08aab": "達仁分隊",
+  "593f8339a326a612c81cfc9d": "成功大隊",
+  "5ee1d63d1679e1139fe2bbe2": "都蘭分隊",
+  "593f83d2a326a612c81cfca4": "東河分隊",
+  "5a5d9641ff615e83c6001f56": "泰源分隊",
+  "593f83c1a326a612c81cfca3": "成功分隊",
+  "593f841ba326a612c81cfca5": "長濱分隊"
+};
 let calendarSourcesCache = []; // [{ name, brigade, url, tag }]
 
 let lastRefreshAt = null;
@@ -135,19 +179,21 @@ function refreshPasswords() {
 }
 
 function refreshDepts() {
-  if (!DEPTS_URL) { deptByIdCache = {}; deptByNameCache = {}; return Promise.resolve(0); }
+  if (!DEPTS_URL) { deptByIdCache = {}; deptByNameCache = {}; deptNameByIdCache = {}; return Promise.resolve(0); }
   return fetchCSV(DEPTS_URL).then(function (rows) {
-    var byId = {}, byName = {};
+    var byId = {}, byName = {}, nameById = {};
     rows.forEach(function (r) {
       var id = r["單位代碼"] || r["dept"] || r["deptId"] || "";
       var name = r["單位名稱"] || "";
       var brigade = r["所屬大隊"] || "";
+      if (id && name) nameById[id] = name;
       if (!brigade) return;
       if (id) byId[id] = brigade;
       if (name) byName[name] = brigade;
     });
     deptByIdCache = byId;
     deptByNameCache = byName;
+    deptNameByIdCache = nameById;
     return Object.keys(byId).length;
   });
 }
@@ -232,6 +278,36 @@ function resolveBrigadeByName(name) {
   return name && deptByNameCache[name] ? deptByNameCache[name] : null;
 }
 
+// 單位代碼 → 單位名稱：試算表優先，沒有再用內建預設，都沒有回傳 null。
+function resolveNameById(deptId) {
+  if (!deptId) return null;
+  return deptNameByIdCache[deptId] || DEFAULT_DEPT_NAMES[deptId] || null;
+}
+
+// 把採集器送來的單位名稱，一律改用單位代碼查到的名稱校正（見檔頭說明為什麼）。
+// 查不到代碼對照的單位（例如全新單位、試算表和預設都還沒有）保留採集器原本的
+// 名稱，不會被清掉。tasks 只帶單位名稱、沒帶代碼，靠「原名稱→新名稱」對照改；
+// outStatus 有帶 dept，直接用代碼查。回傳新物件，不改動傳進來的原資料。
+function fixNames(units, tasks, outStatus) {
+  var renamed = {};
+  var newUnits = (units || []).map(function (u) {
+    var n = u && resolveNameById(u.deptId);
+    if (n && n !== u.name) {
+      renamed[u.name] = n;
+      return Object.assign({}, u, { name: n });
+    }
+    return u;
+  });
+  var newTasks = (tasks || []).map(function (t) {
+    return t && renamed[t.unit] ? Object.assign({}, t, { unit: renamed[t.unit] }) : t;
+  });
+  var newOut = Array.isArray(outStatus) ? outStatus.map(function (o) {
+    var n = o && resolveNameById(o.dept);
+    return n && o.unit !== n ? Object.assign({}, o, { unit: n }) : o;
+  }) : outStatus;
+  return { units: newUnits, tasks: newTasks, outStatus: newOut };
+}
+
 function activeNotices() {
   return noticesCache;
 }
@@ -262,6 +338,8 @@ module.exports = {
   gatedNames: gatedNames,
   resolveBrigadeById: resolveBrigadeById,
   resolveBrigadeByName: resolveBrigadeByName,
+  resolveNameById: resolveNameById,
+  fixNames: fixNames,
   activeNotices: activeNotices,
   calendarSources: calendarSources,
   status: status
