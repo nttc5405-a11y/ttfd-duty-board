@@ -463,8 +463,25 @@ app.get("/api/cal-refresh", (req, res) => {
 
 /* ---------- 健康檢查 ---------- */
 app.get("/api/health", (req, res) => {
+  // 選用參數 ?maxAgeMin=90：全縣／成功大隊資料最新的一份若超過這麼多分鐘
+  // 沒更新（或根本沒資料），回 HTTP 503，讓外部監看服務（UptimeRobot）
+  // 判定為異常並通知。不帶參數時行為與以前完全相同（永遠 200）。
+  const maxAgeMin = parseInt(req.query.maxAgeMin, 10);
+  let stale = false;
+  let ageMin = null;
+  if (maxAgeMin > 0) {
+    const times = [latest, latestCounty]
+      .filter(Boolean)
+      .map((x) => Date.parse(x.receivedAt))
+      .filter((t) => !isNaN(t));
+    if (times.length) ageMin = Math.round((Date.now() - Math.max.apply(null, times)) / 60000);
+    stale = ageMin === null || ageMin > maxAgeMin;
+    if (stale) res.status(503);
+  }
   res.json({
     ok: true,
+    stale: stale,
+    dataAgeMin: ageMin,
     hasData: !!latest,
     receivedAt: latest ? latest.receivedAt : null,
     hasCountyData: !!latestCounty,
