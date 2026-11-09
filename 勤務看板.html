@@ -1807,14 +1807,14 @@ try{
     return !!hqReceivedAt && (!countyReceivedAt || hqReceivedAt>=countyReceivedAt);
   }
 
-  var STALE_MS=5*60*60*1000;
+  var STALE_MS=90*60*1000;
 
   function checkFreshness(){
     if(!remoteReceivedAt) return;   // 還沒收過即時資料，沿用開機時的預設告示
     var ageMs=Date.now()-remoteReceivedAt.getTime();
     if(ageMs>STALE_MS){
-      var hrs=Math.floor(ageMs/3600000);
-      setNotice("<b>資料已 "+hrs+" 小時未更新</b>　　請至隊部電腦重新執行一次「更新勤務看板」書籤。",false);
+      var ageTxt=ageMs>=2*3600000?Math.floor(ageMs/3600000)+" 小時":Math.floor(ageMs/60000)+" 分鐘";
+      setNotice("<b>資料已 "+ageTxt+"未更新</b>　　背景採集可能中斷，請通知管理人員檢查採集電腦（是否開機、ttfd2 是否需要重新登入）。",false);
     }else{
       setNotice("<b>即時資料</b>　　勤務日期 "+esc(remoteDutyDate||"")+
                 "　最後採集 "+fmtTime(remoteReceivedAt.toISOString())+

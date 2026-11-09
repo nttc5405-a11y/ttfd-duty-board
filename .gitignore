@@ -1,0 +1,20 @@
+# 建置中間產物（書籤字串由 build.py 從 collector.js 產生）
+collector/_min.txt
+
+# Node
+node_modules/
+npm-debug.log*
+
+# 編輯器與系統
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# 任何含真實班表的匯出檔，一律不進版本庫
+*.local.json
+勤務表匯出/
+
+# 背景採集程式：登入資料夾含登入狀態、紀錄檔，絕不進版本庫
+collector/runner/profile*/
+collector/runner/logs/
